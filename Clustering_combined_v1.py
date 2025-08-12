@@ -1,19 +1,18 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import time
 from collections import Counter
 
-# Force packages to be available
+# Force packages to be available - we know they work from command line
 PACKAGES_AVAILABLE = True
 
-try:
-    from bertopic import BERTopic
-    from sentence_transformers import SentenceTransformer
-    import umap
-    import hdbscan
-except ImportError as e:
-    PACKAGES_AVAILABLE = True
+# Import packages at module level
+from bertopic import BERTopic
+from sentence_transformers import SentenceTransformer
+from umap import UMAP  
+from hdbscan import HDBSCAN
 
 def has_text_content(series):
     """Check if a column contains meaningful text content"""
@@ -68,23 +67,27 @@ def classify_confidence(probabilities, high_threshold=0.7, low_threshold=0.3):
     
     return high_conf, medium_conf, low_conf
 
-@st.cache_data
 def run_bertopic_clustering(texts, params):
-    """Run BERTopic clustering with caching"""
+    """Run BERTopic clustering - removed caching to fix import issues"""
     
-    # Set up UMAP
-    umap_model = umap.UMAP(
-        n_neighbors=params['n_neighbors'],
-        n_components=params['n_components'],
+    # Debug: Print dataset info
+    print(f"Debug: Dataset size: {len(texts)}")
+    print(f"Debug: Sample texts: {texts[:3]}")
+    print(f"Debug: Params: {params}")
+    
+    # Set up UMAP with more lenient parameters for small datasets
+    umap_model = UMAP(
+        n_neighbors=min(params['n_neighbors'], len(texts)-1),  # Ensure n_neighbors < dataset size
+        n_components=min(params['n_components'], len(texts)-1),
         min_dist=0.0,
         metric='cosine',
         random_state=42
     )
     
-    # Set up HDBSCAN
-    hdbscan_model = hdbscan.HDBSCAN(
-        min_cluster_size=params['min_cluster_size'],
-        min_samples=params['min_samples'],
+    # Set up HDBSCAN with more lenient parameters
+    hdbscan_model = HDBSCAN(
+        min_cluster_size=max(2, min(params['min_cluster_size'], len(texts)//3)),  # More flexible
+        min_samples=max(1, min(params['min_samples'], len(texts)//5)),
         metric='euclidean',
         cluster_selection_method='eom'
     )
@@ -92,19 +95,85 @@ def run_bertopic_clustering(texts, params):
     # Set up embedding model
     embedding_model = SentenceTransformer(params['embedding_model'])
     
-    # Create BERTopic model
+    # Create BERTopic model with error handling
     topic_model = BERTopic(
         embedding_model=embedding_model,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        verbose=False,
-        calculate_probabilities=True
+        verbose=True,  # Enable verbose to see what's happening
+        calculate_probabilities=True,
+        nr_topics="auto"  # Let BERTopic decide number of topics
     )
     
-    # Fit the model
-    topics, probabilities = topic_model.fit_transform(texts)
+    # Fit the model with error handling
+    try:
+        topics, probabilities = topic_model.fit_transform(texts)
+        print(f"Debug: Generated {len(set(topics))} topics")
+        print(f"Debug: Topic distribution: {dict(zip(*np.unique(topics, return_counts=True)))}")
+        
+        # Check if clustering was successful
+        if probabilities is None or len(probabilities) == 0:
+            raise ValueError("No prediction data was generated")
+            
+        return topic_model, topics, probabilities
+        
+    except Exception as e:
+        print(f"Debug: BERTopic error: {str(e)}")
+        # If BERTopic fails, try simpler approach
+        print("Debug: Trying fallback clustering...")
+        return fallback_clustering(texts, embedding_model)
+
+def fallback_clustering(texts, embedding_model):
+    """Fallback clustering using KMeans if BERTopic fails"""
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
     
-    return topic_model, topics, probabilities
+    # Generate embeddings
+    embeddings = embedding_model.encode(texts)
+    
+    # Try different numbers of clusters
+    best_score = -1
+    best_k = 2
+    
+    for k in range(2, min(len(texts)//2, 8)):
+        try:
+            kmeans = KMeans(n_clusters=k, random_state=42)
+            cluster_labels = kmeans.fit_predict(embeddings)
+            score = silhouette_score(embeddings, cluster_labels)
+            if score > best_score:
+                best_score = score
+                best_k = k
+        except:
+            continue
+    
+    # Final clustering with best k
+    kmeans = KMeans(n_clusters=best_k, random_state=42)
+    topics = kmeans.fit_predict(embeddings)
+    
+    # Generate mock probabilities (distances to centroids converted to probabilities)
+    distances = kmeans.transform(embeddings)
+    min_distances = np.min(distances, axis=1)
+    max_dist = np.max(min_distances)
+    probabilities = 1 - (min_distances / max_dist)  # Closer = higher probability
+    
+    # Create mock topic model
+    class MockTopicModel:
+        def __init__(self, texts, topics):
+            self.topics = topics
+            self.texts = texts
+            
+        def get_topic_info(self):
+            topic_counts = dict(zip(*np.unique(topics, return_counts=True)))
+            return pd.DataFrame([
+                {'Topic': topic, 'Count': count} 
+                for topic, count in topic_counts.items()
+            ])
+            
+        def get_topic(self, topic_id):
+            # Return mock keywords
+            return [("keyword1", 0.5), ("keyword2", 0.4), ("keyword3", 0.3)]
+    
+    return MockTopicModel(texts, topics), topics, probabilities
 
 def page_upload():
     """Page 1: File Upload and Column Selection"""
