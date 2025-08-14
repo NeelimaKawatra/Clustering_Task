@@ -9,7 +9,7 @@ A professional, user-friendly web application for clustering survey responses an
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/clustery.git
+git clone https://github.com/NeelimaKawatra/Clustering_Task
 cd clustery
 ```
 
