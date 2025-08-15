@@ -10,7 +10,6 @@ A professional, user-friendly web application for clustering survey responses an
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/NeelimaKawatra/Clustering_Task
-cd clustery
 ```
 
 ### 2. Install Dependencies
@@ -24,7 +23,7 @@ pip install streamlit pandas bertopic sentence-transformers umap-learn hdbscan n
 
 ### 3. Run the Application
 ```bash
-streamlit run frontend.py
+streamlit run main.py
 ```
 
 ### 4. Open in Browser
@@ -33,15 +32,22 @@ Navigate to `http://localhost:8501` and start clustering!
 ## 📁 Project Structure
 
 ```
-clustery/
-├── frontend.py              # Complete Streamlit UI
-├── backend.py               # All clustering and processing logic
-├── README.md               # This file
-├── requirements.txt        # Python dependencies
-├── .gitignore             # Git ignore rules
-└── clustery_activity.log  # Activity logs (auto-generated)
+Clustering_Task/
+├── main.py
+├── backend.py
+├── tabs/
+│   ├── __init__.py
+│   ├── data_loading.py
+│   ├── preprocessing.py
+│   ├── clustering.py
+│   └── results.py
+└── utils/
+    ├── __init__.py
+    ├── session_state.py
+    ├── styles.py
+    └── helpers.py
 ```
-
+####Frontend is split into tabs and utils for ease.
 ## 🛠️ Usage Guide
 
 ### Step 1: Data Loading 📁
