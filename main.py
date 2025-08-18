@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import time
 from collections import Counter
+from utils.session_state import reset_analysis
 
 # ============================================================================
 # FAST APP STARTUP WITH PROGRESSIVE LOADING
@@ -170,12 +171,7 @@ def create_sidebar_navigation():
                     help="Clear all data and start over",
                     use_container_width=True,
                     key="reset_analysis"):
-            # Clear session state
-            keys_to_clear = [key for key in st.session_state.keys() 
-                           if key.startswith(('df', 'processed_', 'clustering_', 'tab_', 'text_', 'respondent_'))]
-            for key in keys_to_clear:
-                del st.session_state[key]
-            st.session_state.current_page = "data_loading"
+            reset_analysis()
             st.rerun()
             
 def show_session_analytics():
@@ -196,6 +192,7 @@ def show_session_analytics():
                     st.caption(f"• {activity_name}: {count}")
         except Exception as e:
             st.caption(f"Analytics error: {str(e)}")
+
 
 # ============================================================================
 # MAIN CONTENT RENDERING
@@ -252,6 +249,7 @@ def render_main_content():
         st.markdown("Explore your clustering results and export findings.")
         st.markdown("---")
         tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
+
 
 # ============================================================================
 # MAIN APPLICATION

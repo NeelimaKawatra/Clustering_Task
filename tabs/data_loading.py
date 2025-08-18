@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 from utils.helpers import get_file_from_upload
+from utils.session_state import reset_analysis
 
 def tab_a_data_loading(backend_available):
     """Tab A: Data Loading using backend services with sidebar navigation"""
@@ -30,7 +31,25 @@ def tab_a_data_loading(backend_available):
             help="Upload your survey data or text file for clustering",
             key="data_file_uploader"
         )
+
+    # Check if a new file was uploaded (different from previous)
+    current_file_key = None
+    if uploaded_file is not None:
+        # Create a unique key for the file (name + size + type)
+        current_file_key = f"{uploaded_file.name}_{uploaded_file.size}_{uploaded_file.type}"
     
+    # Detect file change and reset analysis if needed
+    if 'previous_file_key' in st.session_state:
+        if current_file_key != st.session_state.previous_file_key and current_file_key is not None:
+            # New file detected - reset analysis
+            reset_analysis()
+            # Update the file key after reset
+            st.session_state.previous_file_key = current_file_key
+            #st.rerun()
+    else:
+        # First time loading - just store the key
+        st.session_state.previous_file_key = current_file_key
+
     with col2:
         if uploaded_file is not None:
             # Show file info
