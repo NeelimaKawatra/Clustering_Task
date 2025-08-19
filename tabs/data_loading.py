@@ -184,9 +184,9 @@ def tab_a_data_loading(backend_available):
     
     # Data preview with better styling
     with st.expander("👀 Data Preview", expanded=True):
-        st.markdown("**First 5 rows of your data:**")
+        st.markdown("**Your loaded data:**")
         st.dataframe(
-            df.head(), 
+            df, 
             use_container_width=True,
             hide_index=True
         )
