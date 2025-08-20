@@ -286,142 +286,206 @@ class ClusteringConfig:
 # ============================================================================
 
 class FastTextProcessor:
-    """Text processing with lazy NLTK loading"""
-    
-    def __init__(self):
-        self.nltk_tools = None
-    
+    """
+    Light-weight, Streamlit-friendly text cleaner.
+
+    Key upgrades (Aug 18):
+      • spaCy streaming tokenisation (+ optional lemmatization)
+      • Stop-word `set` cached once per instance
+      • `remove_numbers` flag now respected
+    """
+
+    def __init__(self) -> None:
+        self._nltk_tools = None       # lazy-loaded dict of NLTK helpers
+        self._spacy_nlp = None        # cached spaCy model
+        self._stop_set = None         # cached stop-words
+
+    # ---------------------------------------------------------------------- NLTK
     def _get_nltk_tools(self):
-        """Lazy load NLTK tools"""
-        if self.nltk_tools is None:
-            self.nltk_tools = lazy_import_nltk()
-        return self.nltk_tools
-    
-    def basic_cleaning(self, text: str) -> str:
-        """Fast basic cleaning - no heavy imports"""
-        if pd.isna(text):
-            return ""
-        
-        # Convert to string and lowercase
-        text = str(text).lower()
-        
-        # Remove URLs
-        text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', text)
-        
-        # Remove email addresses
-        text = re.sub(r'\S+@\S+', '', text)
-        
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        return text
-    
-    def advanced_cleaning(self, text: str, remove_stopwords: bool = True, 
-                         remove_punctuation: bool = True, min_length: int = 2) -> str:
-        """Advanced cleaning with optional NLTK"""
-        if pd.isna(text) or text == "":
-            return ""
-        
-        # Basic cleaning first
+        """Best-effort import of NLTK components (word_tokenize, stopwords)."""
+        if self._nltk_tools is not None:
+            return self._nltk_tools
+
+        try:
+            import nltk
+            from nltk.tokenize import word_tokenize
+            from nltk.corpus import stopwords
+
+            self._nltk_tools = {
+                "available": True,
+                "word_tokenize": word_tokenize,
+                "stopwords": stopwords,
+            }
+        except Exception:            # noqa: BLE001
+            self._nltk_tools = {"available": False}
+
+        return self._nltk_tools
+
+    # --------------------------------------------------------------------- spaCy
+    @staticmethod
+    @st.cache_resource(show_spinner=False)
+    def _load_spacy_model(lang: str = "en"):
+        """
+        Load (or first-run download) a tiny spaCy model exactly once per session.
+        Returns `None` if spaCy isn't installed.
+        """
+        try:
+            import spacy
+
+            try:                                   
+                return spacy.load(f"{lang}_core_web_sm", disable=["parser", "ner"])
+            except OSError:
+                # Silent first-run download
+                from spacy.cli import download as _spacy_dl
+
+                _spacy_dl(f"{lang}_core_web_sm", False, False)
+                return spacy.load(f"{lang}_core_web_sm", disable=["parser", "ner"])
+        except Exception:            
+            return None
+
+    def _get_spacy_nlp(self):
+        if self._spacy_nlp is None:                 # initialise on first use
+            self._spacy_nlp = self._load_spacy_model()
+        return self._spacy_nlp
+
+    # ---------------------------------------------------------- basic primitives
+    @staticmethod
+    def _remove_basic_stopwords(tokens: List[str]) -> List[str]:
+        basic = {
+            "the", "a", "an", "and", "or", "in", "on", "at", "to",
+            "for", "of", "is", "are", "was", "were",
+        }
+        return [t for t in tokens if t not in basic]
+
+    # ----------------------------------------------------------------- Cleaning
+    @staticmethod
+    def basic_cleaning(text: str) -> str:
+        """Very crude clean: strip URLs/e-mails, lower-case & trim."""
+        text = re.sub(r"(https?://\S+)|(www\.\S+)", "", text, flags=re.I)
+        text = re.sub(r"\S+@\S+", "", text)
+        return text.lower().strip()
+
+    def advanced_cleaning(
+        self,
+        text: str,
+        *,
+        remove_stopwords: bool = True,
+        remove_punctuation: bool = True,
+        min_length: int = 2,
+        remove_numbers: bool = True,
+        lemmatize: bool = False,
+    ) -> str:
+        """
+        Full pipeline — uses spaCy if present, falls back to NLTK/string.split.
+        """
+        # 1️⃣ baseline clean -----------------------------------------------------
         text = self.basic_cleaning(text)
-        
-        # Remove punctuation if requested
         if remove_punctuation:
-            text = text.translate(str.maketrans('', '', string.punctuation))
-        
-        # Tokenize
-        nltk_tools = self._get_nltk_tools()
-        if nltk_tools.get("available", False):
-            try:
-                tokens = nltk_tools["word_tokenize"](text)
-            except:
-                tokens = text.split()
+            text = text.translate(str.maketrans("", "", string.punctuation))
+
+        # 2️⃣ tokenise (spaCy preferred) ----------------------------------------
+        tokens: List[str] = []
+        nlp = self._get_spacy_nlp()
+        if nlp is not None:
+            for tok in nlp(text):
+                if tok.is_space:
+                    continue
+                token_txt = tok.lemma_.lower() if lemmatize else tok.text.lower()
+                tokens.append(token_txt)
         else:
-            tokens = text.split()
-        
-        # Remove stopwords if requested
-        if remove_stopwords:
+            nltk_tools = self._get_nltk_tools()
             if nltk_tools.get("available", False):
                 try:
-                    stop_words = set(nltk_tools["stopwords"].words('english'))
-                    tokens = [token for token in tokens if token not in stop_words]
-                except:
-                    tokens = self._remove_basic_stopwords(tokens)
+                    tokens = [
+                        t.lower() for t in nltk_tools["word_tokenize"](text)
+                    ]
+                except Exception:    # noqa: BLE001
+                    tokens = text.split()
             else:
-                tokens = self._remove_basic_stopwords(tokens)
-        
-        # Filter by minimum length
-        tokens = [token for token in tokens if len(token) >= min_length]
-        
-        # Remove digits-only tokens
-        tokens = [token for token in tokens if not token.isdigit()]
-        
-        return ' '.join(tokens)
-    
-    def _remove_basic_stopwords(self, tokens: List[str]) -> List[str]:
-        """Fast stopword removal without NLTK"""
-        basic_stopwords = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-            'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
-            'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that',
-            'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'
-        }
-        return [token for token in tokens if token not in basic_stopwords]
-    
-    def validate_text_column(self, series: pd.Series) -> Tuple[bool, str]:
-        """Fast text validation"""
-        if series.dtype != 'object':
-            return False, "Column is not text type"
-        
-        # Remove null values and convert to string
+                tokens = text.split()
+
+        # 3️⃣ stop-words --------------------------------------------------------
+        if remove_stopwords:
+            if self._stop_set is None:             # build once
+                nltk_tools = self._get_nltk_tools()
+                try:
+                    self._stop_set = (
+                        set(nltk_tools["stopwords"].words("english"))
+                        if nltk_tools.get("available", False)
+                        else set()
+                    )
+                except Exception:                  # noqa: BLE001
+                    self._stop_set = set()
+            tokens = [t for t in tokens if t not in self._stop_set]
+        else:
+            # user asked to keep stop-words — ensure cache exists for future
+            if self._stop_set is None:
+                self._stop_set = set()
+
+        # 4️⃣ length / numeric filters -----------------------------------------
+        tokens = [t for t in tokens if len(t) >= min_length]
+        if remove_numbers:
+            tokens = [
+                t for t in tokens
+                if not t.isdigit() and not any(ch.isdigit() for ch in t)
+            ]
+
+        # 5️⃣ done --------------------------------------------------------------
+        return " ".join(tokens)
+
+    def validate_text_column(self, series: pd.Series) -> tuple[bool, str]:
+        #Light sanity-check that a DataFrame column really holds text."""
+        if series.dtype != "object":
+           return False, "Column is not text type"
+
         text_data = series.dropna().astype(str)
-        
-        if len(text_data) == 0:
+        if text_data.empty:
             return False, "Column contains no valid data"
-        
-        # Check for meaningful text
-        meaningful_texts = text_data[text_data.str.len() > 2]
-        has_spaces = text_data.str.contains(' ', na=False).sum()
-        
-        if len(meaningful_texts) < len(text_data) * 0.3:
+
+        meaningful = text_data[text_data.str.len() > 2]
+        has_spaces = text_data.str.contains(" ", na=False).sum()
+
+        if len(meaningful) < len(text_data) * 0.3:
             return False, "Most entries are too short for clustering"
-        
         if has_spaces == 0:
             return False, "Text appears to be single words or codes"
-        
-        return True, f"Valid text column with {len(meaningful_texts)} meaningful entries"
-    
-    def analyze_text_quality(self, texts: List[str]) -> Dict[str, Any]:
-        """Fast text quality analysis"""
-        valid_texts = [text for text in texts if text and str(text).strip()]
-        
-        if not valid_texts:
+
+        return True, f"Valid text column with {len(meaningful)} meaningful entries"
+
+    def analyze_text_quality(self, texts: list[str]) -> dict[str, int | float]:
+        # Quick stats
+        valid = [t for t in texts if t and str(t).strip()]
+        if not valid:
             return {
-                'total_texts': len(texts),
-                'empty_texts': len(texts),
-                'avg_length': 0,
-                'min_length': 0,
-                'max_length': 0,
-                'unique_texts': 0,
-                'avg_words': 0,
-                'min_words': 0,
-                'max_words': 0
+                "total_texts": len(texts),
+                "empty_texts": len(texts),
+                "avg_length": 0,
+                "min_length": 0,
+                "max_length": 0,
+                "unique_texts": 0,
+                "avg_words": 0,
+                "min_words": 0,
+                "max_words": 0,
             }
-        
-        lengths = [len(str(text)) for text in valid_texts]
-        word_counts = [len(str(text).split()) for text in valid_texts]
-        
+
+        lengths = [len(str(t)) for t in valid]
+        words   = [len(str(t).split()) for t in valid]
+
         return {
-            'total_texts': len(texts),
-            'empty_texts': len(texts) - len(valid_texts),
-            'avg_length': sum(lengths) / len(lengths),
-            'min_length': min(lengths),
-            'max_length': max(lengths),
-            'unique_texts': len(set(str(text) for text in valid_texts)),
-            'avg_words': sum(word_counts) / len(word_counts),
-            'min_words': min(word_counts),
-            'max_words': max(word_counts)
+            "total_texts": len(texts),
+            "empty_texts": len(texts) - len(valid),
+            "avg_length": sum(lengths) / len(lengths),
+            "min_length": min(lengths),
+            "max_length": max(lengths),
+            "unique_texts": len(set(map(str, valid))),
+            "avg_words":   sum(words) / len(words),
+            "min_words":   min(words),
+            "max_words":   max(words),
         }
+
+
+
+
 
 # ============================================================================
 # OPTIMIZED CLUSTERING MODEL
