@@ -111,7 +111,8 @@ def tab_d_results(backend_available):
         st.session_state.df, 
         st.session_state.text_column, 
         st.session_state.respondent_id_column, 
-        st.session_state.session_id
+        st.session_state.session_id,
+        st.session_state.original_texts                                               #####################################
     )
     
     # Show preview

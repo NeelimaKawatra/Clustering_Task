@@ -82,6 +82,8 @@ def tab_b_preprocessing(backend_available):
             )
             
             # Store results
+            st.session_state.original_texts = original_texts   ##################################################################################################
+
             st.session_state.processed_texts = processed_texts
             st.session_state.preprocessing_settings = metadata
             

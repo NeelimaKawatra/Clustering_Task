@@ -1130,7 +1130,7 @@ class ClusteryBackend:
     # ========================================================================
     
     def export_results(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame, 
-                      text_column: str, id_column: str = None, session_id: str = "") -> pd.DataFrame:
+                      text_column: str, id_column: str = None, session_id: str = "", original_texts_col: List[str] = []) -> pd.DataFrame:
         """Fast results export"""
         
         topics = clustering_results["topics"]
@@ -1155,7 +1155,8 @@ class ClusteryBackend:
                 cluster_labels.append(label)
         
         # Get original texts for comparison
-        original_texts = original_data[text_column].tolist()[:len(texts)]
+        original_texts = original_data[text_column].dropna().tolist()[:len(texts)]   #################################################################
+        # original_texts = df[text_column].dropna().tolist()
         
         # Create comprehensive dataframe
         results_df = pd.DataFrame({
