@@ -164,6 +164,7 @@ def tab_b_preprocessing(backend_available):
             filtered_out = len(original_texts_all) - len(st.session_state.processed_texts)
             st.info(f"ℹ️ {filtered_out} texts were filtered out (empty, too short, or only whitespace)")
         
+        """
         # Word frequency analysis
         if st.checkbox("📈 Show word frequency analysis"):
             st.subheader("Word Frequency Analysis")
@@ -187,7 +188,8 @@ def tab_b_preprocessing(backend_available):
                 processed_freq = Counter(processed_words).most_common(10)
                 for word, count in processed_freq:
                     st.write(f"• {word}: {count}")
-        
+        """
+                    
         # Processing summary
         with st.expander("ℹ️ Processing Summary"):
             st.write(f"**Method:** {metadata['method']}")
