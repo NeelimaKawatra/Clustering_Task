@@ -36,7 +36,8 @@ def tab_a_data_loading(backend_available):
             upload_title,
             type=["csv", "xlsx", "xls"],
             help=upload_help,
-            key=upload_key
+            key=upload_key,
+            label_visibility="collapsed"
         )
 
     # Check if a new file was uploaded (different from previous)
@@ -121,44 +122,8 @@ def tab_a_data_loading(backend_available):
                 """)
             return
     
-    # If no file uploaded and no data exists, show getting started info
+    # If no file uploaded and no data exists, return since nothing to do
     if not data_already_loaded and uploaded_file is None:
-        # Show helpful getting started information
-        st.markdown("---")
-        st.subheader("🎯 Getting Started")
-        
-        info_col1, info_col2 = st.columns(2)
-        
-        with info_col1:
-            st.markdown("""
-            **What type of data works best?**
-            
-            📋 **Survey responses** - Open-ended questions
-            💬 **Customer feedback** - Reviews, comments
-            📝 **Social media posts** - Tweets, posts
-            📰 **Articles** - News, blog posts
-            📞 **Support tickets** - Customer inquiries
-            """)
-        
-        with info_col2:
-            st.markdown("""
-            **File requirements:**
-            
-            📁 **Format:** CSV or Excel (.xlsx, .xls)
-            📊 **Size:** At least 10 rows of data
-            📝 **Text:** One column with meaningful text
-            🆔 **IDs:** Optional column for tracking
-            💾 **Limit:** Up to 300 rows (for performance)
-            """)
-        
-        # Sample data suggestion
-        st.markdown("---")
-        st.info("""
-        **💡 Don't have data ready?** You can test Clustery with sample data:
-        - Create a CSV with customer feedback, survey responses, or any text collection
-        - Include at least 20-30 text entries for meaningful results
-        - Make sure each text entry has multiple words (not just single words or codes)
-        """)
         return
     
     # If we reach here, we have data loaded (either from session state or new upload)
@@ -208,30 +173,28 @@ def tab_a_data_loading(backend_available):
         import pandas as pd
         st.dataframe(pd.DataFrame(col_info), use_container_width=True, hide_index=True)
     
-    # Column Configuration Section
-    st.subheader("⚙️ Column Configuration")
+    # Column Selection Section
+    st.subheader("⚙️ Column Selection")
+    if "text_column" not in st.session_state:
+        st.session_state.text_column = None
+        text_index = None
+    if "id_column" not in st.session_state:
+        st.session_state.respondent_id_column = None
+        id_index = 0 # Default to "Auto-generate IDs"
+
+    st.markdown("**🆔 Respondent ID Column (Optional)**")
+    id_options = ["Auto-generate IDs"] + list(df.columns)
     
-    config_col1, config_col2 = st.columns(2)
     
-    with config_col1:
-        st.markdown("**🆔 Respondent ID Column (Optional)**")
-        id_options = ["Auto-generate IDs"] + list(df.columns)
-        
-        # Set default value based on previous selection
-        default_id_index = 0  # Default to "Auto-generate IDs"
-        if st.session_state.get('respondent_id_column') is not None:
-            # If a specific column was selected, find its index
-            if st.session_state.respondent_id_column in df.columns:
-                default_id_index = id_options.index(st.session_state.respondent_id_column)
-        
-        selected_id = st.selectbox(
-            "Choose ID column:",
-            id_options,
-            index=default_id_index,
-            help="Select a column to track individual responses",
-            key="id_column_selector"
-        )
-        
+    selected_id = st.selectbox(
+        "Choose ID column:",
+        id_options,
+        index=id_index,
+        help="Select a column to track individual responses",
+        key="id_column_selector"
+    )
+    
+    if selected_id is not None:
         if selected_id == "Auto-generate IDs":
             st.session_state.respondent_id_column = None
             st.info("💡 Will create sequential IDs: ID_001, ID_002, etc.")
@@ -240,51 +203,53 @@ def tab_a_data_loading(backend_available):
             # Show preview of selected ID column
             sample_ids = df[selected_id].head(5).tolist()
             st.code(f"Sample IDs: {sample_ids}")
+        #id_index should be updated to reflect the index of the selected column
+        id_index = id_options.index(selected_id)
     
-    with config_col2:
-        st.markdown("**📝 Text Column for Clustering**")
-        
-        # Get text column suggestions from backend
-        text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-        
-        if text_columns:
-            st.success(f"💡 Detected {len(text_columns)} potential text columns")
-            for col in text_columns[:3]:  # Show top 3
-                if not df[col].dropna().empty:
-                    sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
-                    st.caption(f"**{col}:** {sample_text}")
-        
-        # Set default value based on previous selection
-        default_text_index = 0  # Default to first column
-        if st.session_state.get('text_column') is not None:
-            # If a specific column was selected, find its index
-            if st.session_state.text_column in df.columns:
-                default_text_index = list(df.columns).index(st.session_state.text_column)
-        
-        text_column = st.selectbox(
-            "Select text column:",
-            df.columns,
-            index=default_text_index,
-            help="Choose the column with text you want to cluster",
-            key="text_column_selector"
-        )
-        
-        if text_column:
-            st.session_state.text_column = text_column
-            # Show preview of selected text column
-            sample_texts = df[text_column].dropna().head(3).tolist()
-            if sample_texts:
-                with st.container():
-                    st.markdown("**Sample texts:**")
-                    for i, text in enumerate(sample_texts, 1):
-                        st.text_area(
-                            f"Sample {i}:",
-                            str(text)[:200] + "..." if len(str(text)) > 200 else str(text),
-                            height=60,
-                            disabled=True,
-                            key=f"sample_text_{i}"
-                        )
     
+    st.markdown("**📝 Text Column for Clustering**")
+    
+    # Get text column suggestions from backend
+    text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+    
+    if text_columns:
+        st.success(f"💡 Detected {len(text_columns)} potential text columns")
+        for col in text_columns[:3]:  # Show top 3
+            if not df[col].dropna().empty:
+                sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
+                st.caption(f"**{col}:** {sample_text}")
+    
+    # Set default value based on previous selection
+    default_text_index = 0  # Default to first column
+    if st.session_state.get('text_column') is not None:
+        # If a specific column was selected, find its index
+        if st.session_state.text_column in df.columns:
+            default_text_index = list(df.columns).index(st.session_state.text_column)
+    
+    text_column = st.selectbox(
+        "Select text column:",
+        df.columns,
+        index=default_text_index,
+        help="Choose the column with text you want to cluster",
+        key="text_column_selector"
+    )
+    
+    if text_column:
+        st.session_state.text_column = text_column
+        # Show preview of selected text column
+        sample_texts = df[text_column].dropna().head(3).tolist()
+        if sample_texts:
+            with st.container():
+                st.markdown("**Sample texts:**")
+                for i, text in enumerate(sample_texts, 1):
+                    st.text_area(
+                        f"Sample {i}:",
+                        str(text)[:200] + "..." if len(str(text)) > 200 else str(text),
+                        height=60,
+                        disabled=True,
+                        key=f"sample_text_{i}"
+                    )
+
     # Validation and Quality Analysis
     if st.session_state.get('text_column'):
         st.subheader("🔍 Data Quality Analysis")
@@ -411,39 +376,20 @@ def tab_a_data_loading(backend_available):
             
             # Large, prominent proceed button
             st.markdown("<br>", unsafe_allow_html=True)
-            
-            proceed_col1, proceed_col2, proceed_col3 = st.columns([1, 2, 1])
-            with proceed_col2:
-                if st.button(
-                    "🚀 Proceed to Preprocessing", 
-                    type="primary", 
-                    use_container_width=True,
-                    help="Move to the next step to clean and prepare your text data"
-                ):
-                    # Mark this tab as complete
-                    st.session_state.tab_a_complete = True
-                    
-                    # Track completion
-                    if backend_available:
-                        st.session_state.backend.track_activity(st.session_state.session_id, "data_upload", {
-                            "filename": "loaded_data",  # Generic name since we don't have original filename
-                            "rows": len(df),
-                            "columns": len(df.columns),
-                            "text_column": st.session_state.text_column,
-                            "id_column": st.session_state.respondent_id_column,
-                            "text_quality": stats
-                        })
-                    
-                    # Navigate to preprocessing
-                    st.session_state.current_page = "preprocessing"
-                    
-                    # Show success message
-                    st.success("✅ Data loading complete! Moving to preprocessing...")
-                    st.balloons()
-                    
-                    # Rerun to update sidebar and navigate
-                    st.rerun()
-            
+            if st.session_state.tab_a_complete==False:  #if tab_a_complete is not True, then run the code below
+                st.session_state.tab_a_complete = True
+                                    # Track completion
+                if backend_available:
+                    st.session_state.backend.track_activity(st.session_state.session_id, "data_upload", {
+                        "filename": "loaded_data",  # Generic name since we don't have original filename
+                        "rows": len(df),
+                        "columns": len(df.columns),
+                        "text_column": st.session_state.text_column,
+                        "id_column": st.session_state.respondent_id_column,
+                        "text_quality": stats
+                    })
+                st.balloons()
+                st.rerun()
             # Additional tips
             st.markdown("---")
             with st.expander("💡 Tips for Better Results", expanded=False):
@@ -464,7 +410,6 @@ def tab_a_data_loading(backend_available):
         
         else:
             st.error(f"❌ {validation_result['text_column_message']}")
-            
             # Provide helpful suggestions
             st.markdown("**💡 Suggestions to fix this issue:**")
             st.markdown("""
@@ -473,13 +418,10 @@ def tab_a_data_loading(backend_available):
             - Check that the column isn't mostly empty or contains mostly numbers/codes
             - Look for columns with survey responses, comments, or descriptions
             """)
+            if st.session_state.tab_a_complete==True:
+                st.session_state.tab_a_complete=False
+                st.rerun()
+
             
-            st.session_state.text_column = None
+            
     
-    # Show current progress in the main area too
-    if st.session_state.get('tab_a_complete'):
-        st.success("✅ **Data Loading Complete!** Your data is ready for preprocessing.")
-        
-        if st.button("➡️ Continue to Preprocessing", key="continue_to_preprocessing"):
-            st.session_state.current_page = "preprocessing"
-            st.rerun()
