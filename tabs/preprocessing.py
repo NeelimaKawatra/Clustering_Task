@@ -1,5 +1,6 @@
 import streamlit as st
 from collections import Counter
+import pandas as pd
 
 def tab_b_preprocessing(backend_available):
     """Tab B: Text Preprocessing using backend services"""
@@ -121,9 +122,23 @@ def tab_b_preprocessing(backend_available):
             st.metric("Processed unique", processed_stats['unique_texts'],
                      f"{processed_stats['unique_texts'] - original_stats['unique_texts']:+d}")
         
-        # Before/After comparison
+        # Before/After comparison    ####################################
         st.subheader("🔍 Text Comparison")
-        
+        with st.expander("👀 Detailed Review", expanded=True):
+            # Build a dataframe with respondent_id, original, processed text
+            # –– Assumes the raw dataframe contains a column named "respondent_id" ???????????????
+            comparison_df = pd.DataFrame({
+                #"respondent_id": df["respondent_id"],
+                "Original Text": st.session_state.original_texts,
+                "Pre-processed Text": st.session_state.processed_texts
+            })
+            st.dataframe(
+                comparison_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        """ disabling text comparison
         # Create aligned original/processed pairs for display
         original_texts_all = df[text_column].dropna().tolist()
         
@@ -164,8 +179,9 @@ def tab_b_preprocessing(backend_available):
         if len(original_texts_all) > len(st.session_state.processed_texts):
             filtered_out = len(original_texts_all) - len(st.session_state.processed_texts)
             st.info(f"ℹ️ {filtered_out} texts were filtered out (empty, too short, or only whitespace)")
-        
         """
+
+        """ disabling word frequency analysis
         # Word frequency analysis
         if st.checkbox("📈 Show word frequency analysis"):
             st.subheader("Word Frequency Analysis")
