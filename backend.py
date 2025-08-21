@@ -778,7 +778,18 @@ class ClusteryBackend:
             "text_quality": {},
             "recommendations": []
         }
-        
+        # Add ID column analysis
+        if id_column:
+            validation_result["id_column_analysis"] = self._analyze_id_column(df[id_column])
+        else:
+            # For auto-generated IDs, provide default analysis
+            validation_result["id_column_analysis"] = {
+                "status": "perfect",
+                "message": "Auto-generated IDs will be created",
+                "total": len(df),
+                "unique": len(df)
+            }
+
         # Validate text column
         is_valid, message = self.text_processor.validate_text_column(df[text_column])
         validation_result["text_column_valid"] = is_valid
@@ -788,27 +799,21 @@ class ClusteryBackend:
             # Analyze text quality
             validation_result["text_quality"] = self.text_processor.analyze_text_quality(df[text_column])
         
-        # Analyze ID column
-        if id_column:
-            id_analysis = self._analyze_id_column(df[id_column])
-            validation_result["id_column_analysis"] = id_analysis
-        else:
-            validation_result["id_column_analysis"] = {
-                "status": "auto_generate",
-                "message": "Will auto-generate sequential IDs"
-            }
         
         # Log column validation
         self.logger.log_activity("column_validation", session_id, {
             "text_column": text_column,
-            "id_column": id_column,
             "text_valid": is_valid,
             "text_quality": validation_result["text_quality"]
         })
         
         return validation_result
     
+    
     def _analyze_id_column(self, series: pd.Series) -> Dict[str, Any]:
+        #counts number of total and unique IDs
+        #returns a dictionary with the total and unique counts
+        #NOTE: currently this function always returns "perfect", as there are no special requirements for the ID column
         """Fast ID column analysis"""
         ids = series.dropna().astype(str)
         
@@ -816,31 +821,12 @@ class ClusteryBackend:
         valid_count = len(ids)
         unique_count = len(ids.unique())
         duplicates = total_count - unique_count
-        
-        if duplicates > 0:
-            return {
-                "status": "duplicates",
-                "message": f"Found {duplicates} duplicate IDs. Will use first occurrence.",
-                "total": total_count,
-                "unique": unique_count,
-                "duplicates": duplicates
-            }
-        elif valid_count < total_count:
-            missing = total_count - valid_count
-            return {
-                "status": "missing",
-                "message": f"{missing} missing IDs. Will auto-generate for missing entries.",
-                "total": total_count,
-                "unique": unique_count,
-                "missing": missing
-            }
-        else:
-            return {
-                "status": "perfect",
-                "message": f"Perfect! {unique_count} unique IDs",
-                "total": total_count,
-                "unique": unique_count
-            }
+        return {
+            "status": "perfect",
+            "message": f"Perfect! {total_count} IDs",
+            "total": total_count,
+            "unique": unique_count
+        }
     
     # ========================================================================
     # TEXT PREPROCESSING (Fast)
