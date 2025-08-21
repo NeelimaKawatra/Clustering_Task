@@ -8,7 +8,7 @@ def tab_b_preprocessing(backend_available):
     if backend_available:
         st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "preprocessing"})
     
-    st.header("🔧 Text Preprocessing")
+    #st.header("🔧 Text Preprocessing")
     
     # Get data from previous tab
     df = st.session_state.df
@@ -22,7 +22,7 @@ def tab_b_preprocessing(backend_available):
         st.error("❌ Backend services not available. Please check backend installation.")
         return
     
-    st.subheader("Choose Preprocessing Level")
+    st.subheader("Choose Pre-processing Level")
     
     # Get preprocessing recommendations from backend
     original_texts = df[text_column].dropna().tolist()
@@ -83,7 +83,6 @@ def tab_b_preprocessing(backend_available):
             
             # Store results
             st.session_state.original_texts = original_texts   ##################################################################################################
-
             st.session_state.processed_texts = processed_texts
             st.session_state.preprocessing_settings = metadata
             

@@ -1,7 +1,12 @@
 import streamlit as st
 
-def apply_custom_styles():
-    """Apply custom CSS styles optimized for sidebar navigation with performance indicators"""
+"""Apply custom CSS styles optimized for sidebar navigation with performance indicators"""
+def apply_custom_styles() -> None:
+    
+    # Inject project-wide CSS once per rerun.
+    if "_custom_styles_injected" in st.session_state:
+        return          # avoid duplicate <style> blocks on fast reruns
+
     st.markdown("""
     <style>
     /* Hide the default header */
@@ -21,7 +26,8 @@ def apply_custom_styles():
     }
     
     .stRadio > div > label {
-        background-color: #ffffff;
+        background-color: #f5f5f5;
+        color: #212529;    
         border: 1px solid #dee2e6;
         border-radius: 8px;
         padding: 12px 16px;
@@ -216,6 +222,7 @@ def apply_custom_styles():
     /* Radio button in main content (not sidebar) */
     .main .stRadio > div > label {
         background-color: #f8f9fa;
+        color: #212529;
         border: 1px solid #dee2e6;
         border-radius: 8px;
         padding: 12px 16px;
@@ -363,4 +370,8 @@ def apply_custom_styles():
         margin: 1rem 0;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """, 
+        unsafe_allow_html=True,
+    )
+
+    st.session_state._custom_styles_injected = True
