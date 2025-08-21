@@ -175,43 +175,55 @@ def tab_a_data_loading(backend_available):
     
     # Column Selection Section
     st.subheader("⚙️ Column Selection")
-    if "text_column" not in st.session_state:
-        st.session_state.text_column = None
-        text_index = None
-    if "id_column" not in st.session_state:
-        st.session_state.respondent_id_column = None
-        id_index = 0 # Default to "Auto-generate IDs"
 
+
+    # Respondent ID Column Section
     st.markdown("**🆔 Respondent ID Column (Optional)**")
-    id_options = ["Auto-generate IDs"] + list(df.columns)
-    
+    auto_option = "Auto-generate IDs"
+    id_options = [auto_option] + list(df.columns)
+    #setting up the default values for the id column
+    if "respondent_id_column" not in st.session_state:
+        st.session_state.respondent_id_column = auto_option 
     
     selected_id = st.selectbox(
         "Choose ID column:",
         id_options,
-        index=id_index,
+        index=id_options.index(st.session_state.respondent_id_column),
         help="Select a column to track individual responses",
         key="id_column_selector"
     )
+    st.session_state.respondent_id_column = selected_id
     
-    if selected_id is not None:
-        if selected_id == "Auto-generate IDs":
-            st.session_state.respondent_id_column = None
-            st.info("💡 Will create sequential IDs: ID_001, ID_002, etc.")
-        else:
-            st.session_state.respondent_id_column = selected_id
-            # Show preview of selected ID column
-            sample_ids = df[selected_id].head(5).tolist()
-            st.code(f"Sample IDs: {sample_ids}")
-        #id_index should be updated to reflect the index of the selected column
-        id_index = id_options.index(selected_id)
+    # if selected_id is not None:
+    #     if selected_id == auto_option:
+    #         st.session_state.respondent_id_column = None
+    #         st.info("💡 Will create sequential IDs: ID_001, ID_002, etc.")
+    #     else:
+    #         st.session_state.respondent_id_column = selected_id
+    #         # Show preview of selected ID column
+    #         sample_ids = df[selected_id].head(5).tolist()
+    #         st.code(f"Sample IDs: {sample_ids}")
+    #     #id_index should be updated to reflect the index of the selected column
+    #     st.session_state.id_index = id_options.index(selected_id)
     
-    
+    # Text Column Section
+
     st.markdown("**📝 Text Column for Clustering**")
-    
+    text_options = list(df.columns)
+            #setting up the default values for the text column
+    if "text_column" not in st.session_state:
+        st.session_state.text_column = None
+        st.session_state.text_index = None
+    else:
+        # Key exists, but value might be None or a column name
+        if st.session_state.text_column is None:
+            st.session_state.text_index = None
+        elif st.session_state.text_column in df.columns:
+            st.session_state.text_index = text_options.index(st.session_state.text_column)
+        else:
+            st.session_state.text_index = None  # Fallback if column doesn't exist in dataframe
     # Get text column suggestions from backend
     text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-    
     if text_columns:
         st.success(f"💡 Detected {len(text_columns)} potential text columns")
         for col in text_columns[:3]:  # Show top 3
@@ -219,25 +231,22 @@ def tab_a_data_loading(backend_available):
                 sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
                 st.caption(f"**{col}:** {sample_text}")
     
-    # Set default value based on previous selection
-    default_text_index = 0  # Default to first column
-    if st.session_state.get('text_column') is not None:
-        # If a specific column was selected, find its index
-        if st.session_state.text_column in df.columns:
-            default_text_index = list(df.columns).index(st.session_state.text_column)
-    
-    text_column = st.selectbox(
+
+    st.session_state.text_column = st.selectbox(
         "Select text column:",
-        df.columns,
-        index=default_text_index,
+        text_options,
+        index=st.session_state.text_index,
         help="Choose the column with text you want to cluster",
         key="text_column_selector"
     )
     
-    if text_column:
-        st.session_state.text_column = text_column
+
+    
+
+
+    if st.session_state.text_column  is not None:
         # Show preview of selected text column
-        sample_texts = df[text_column].dropna().head(3).tolist()
+        sample_texts = df[st.session_state.text_column ].dropna().head(3).tolist()
         if sample_texts:
             with st.container():
                 st.markdown("**Sample texts:**")
@@ -249,6 +258,7 @@ def tab_a_data_loading(backend_available):
                         disabled=True,
                         key=f"sample_text_{i}"
                     )
+
 
     # Validation and Quality Analysis
     if st.session_state.get('text_column'):
