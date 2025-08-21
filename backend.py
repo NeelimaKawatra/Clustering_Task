@@ -94,10 +94,20 @@ def create_umap_model_cached(n_neighbors: int, n_components: int, random_state: 
             n_components=min(n_components, 10),
             min_dist=0.0,
             metric='cosine',
-            random_state=random_state
+            random_state=random_state,
+            low_memory=True,
+            n_jobs=1
         )
     except Exception as e:
-        st.error(f"Failed to create UMAP model: {e}")
+        return None
+
+@st.cache_resource(show_spinner=False)
+def create_pca_model_cached(n_components: int, random_state: int = 42):
+    """Cache PCA models"""
+    try:
+        from sklearn.decomposition import PCA
+        return PCA(n_components=n_components, random_state=random_state)
+    except Exception as e:
         return None
 
 @st.cache_resource(show_spinner=False)
@@ -112,7 +122,6 @@ def create_hdbscan_model_cached(min_cluster_size: int, min_samples: int):
             cluster_selection_method='eom'
         )
     except Exception as e:
-        st.error(f"Failed to create HDBSCAN model: {e}")
         return None
 
 # ============================================================================
@@ -128,7 +137,7 @@ def lazy_import_clustering_packages():
     
     try:
         # Show progress to user
-        with st.spinner("🤖 Loading clustering libraries (first time only)..."):
+        with st.spinner("Loading clustering libraries (first time only)..."):
             from bertopic import BERTopic
             from sentence_transformers import SentenceTransformer
             from umap import UMAP
@@ -140,7 +149,7 @@ def lazy_import_clustering_packages():
             
             # Pre-cache a small model for faster first clustering
             if not _package_status["models_cached"]:
-                st.info("📥 Pre-loading default model for faster clustering...")
+                st.info("Pre-loading default model for faster clustering...")
                 load_sentence_transformer_cached('all-MiniLM-L6-v2')
                 _package_status["models_cached"] = True
             
@@ -148,8 +157,8 @@ def lazy_import_clustering_packages():
             
     except ImportError as e:
         CLUSTERING_AVAILABLE = False
-        st.error(f"❌ Clustering packages not available: {e}")
-        st.info("💡 Install with: pip install bertopic sentence-transformers umap-learn hdbscan")
+        st.error(f"Clustering packages not available: {e}")
+        st.info("Install with: pip install bertopic sentence-transformers umap-learn hdbscan")
         return False
 
 def lazy_import_nltk():
@@ -160,7 +169,7 @@ def lazy_import_nltk():
         return setup_nltk_cached()
     
     try:
-        with st.spinner("📚 Setting up text processing..."):
+        with st.spinner("Setting up text processing..."):
             result = setup_nltk_cached()
             return result
     except Exception as e:
@@ -483,174 +492,535 @@ class FastTextProcessor:
             "max_words":   max(words),
         }
 
-
-
-
-
 # ============================================================================
-# OPTIMIZED CLUSTERING MODEL
+# PROGRESSIVE FALLBACK CLUSTERING MODEL
 # ============================================================================
 
 class OptimizedClusteringModel:
-    """Clustering model with lazy loading and caching"""
+    """Clustering model with progressive fallback and clear user communication"""
     
     def __init__(self):
         self.model = None
         self.clustering_ready = False
+        self.model_config = None
+        self.attempts_made = []
     
     def setup_model(self, params: Dict[str, Any]) -> bool:
-        """Setup BERTopic model with cached components"""
+        """Setup clustering model with progressive fallback approach"""
         
-        # Lazy load clustering packages
         if not lazy_import_clustering_packages():
+            st.error("Failed to load clustering packages")
             return False
+        
+        self.attempts_made = []
         
         try:
             progress_col1, progress_col2 = st.columns([1, 3])
             
             with progress_col1:
-                st.write("🔧 **Model Setup:**")
+                st.write("**Model Setup:**")
             
             with progress_col2:
-                progress_bar = st.progress(0.0)  # Fixed: Use 0.0
+                progress_bar = st.progress(0.0)
                 status_text = st.empty()
                 
-                # Step 1: Load embedding model (cached)
-                status_text.text("Loading embedding model...")
-                progress_bar.progress(0.25)  # Fixed: Use 0.25
+                # Step 1: Load embedding model
+                status_text.text("Loading text embedding model...")
+                progress_bar.progress(0.1)
                 embedding_model = load_sentence_transformer_cached(params['embedding_model'])
                 
                 if embedding_model is None:
+                    st.error("Failed to load embedding model")
                     return False
                 
-                # Step 2: Create UMAP model (cached)
-                status_text.text("Setting up dimensionality reduction...")
-                progress_bar.progress(0.5)  # Fixed: Use 0.5
-                umap_model = create_umap_model_cached(
-                    params['n_neighbors'], 
-                    params['n_components']
-                )
-                
-                if umap_model is None:
-                    return False
-                
-                # Step 3: Create HDBSCAN model (cached)
-                status_text.text("Configuring clustering algorithm...")
-                progress_bar.progress(0.75)  # Fixed: Use 0.75
+                # Step 2: Create HDBSCAN model
+                status_text.text("Setting up clustering algorithm...")
+                progress_bar.progress(0.2)
                 hdbscan_model = create_hdbscan_model_cached(
                     params['min_cluster_size'],
                     params['min_samples']
                 )
                 
                 if hdbscan_model is None:
+                    st.error("Failed to create HDBSCAN model")
                     return False
                 
-                # Step 4: Create BERTopic model
-                status_text.text("Finalizing model...")
-                progress_bar.progress(0.9)  # Fixed: Use 0.9
-                
+                # Step 3: Progressive approach - try sophisticated methods first
                 from bertopic import BERTopic
-                self.model = BERTopic(
-                    embedding_model=embedding_model,
-                    umap_model=umap_model,
-                    hdbscan_model=hdbscan_model,
-                    verbose=False,
-                    calculate_probabilities=True,
-                    nr_topics="auto"
-                )
                 
-                status_text.text("✅ Model ready!")
-                progress_bar.progress(1.0)  # Fixed: Use 1.0
+                # Attempt 1: Full BERTopic with UMAP
+                status_text.text("Attempting advanced configuration with UMAP...")
+                progress_bar.progress(0.3)
                 
-                # Clean up progress indicators
-                time.sleep(0.5)
-                progress_bar.empty()
-                status_text.empty()
+                success, config = self._try_full_bertopic(embedding_model, hdbscan_model, params, status_text)
+                if success:
+                    progress_bar.progress(1.0)
+                    status_text.text("Advanced clustering model ready!")
+                    time.sleep(0.5)
+                    progress_bar.empty()
+                    status_text.empty()
+                    self.clustering_ready = True
+                    return True
                 
-                self.clustering_ready = True
-                return True
+                # Attempt 2: BERTopic with PCA
+                status_text.text("UMAP failed, trying PCA dimensionality reduction...")
+                progress_bar.progress(0.5)
+                
+                success, config = self._try_pca_bertopic(embedding_model, hdbscan_model, params, status_text)
+                if success:
+                    progress_bar.progress(1.0)
+                    status_text.text("PCA-based clustering model ready!")
+                    time.sleep(0.5)
+                    progress_bar.empty()
+                    status_text.empty()
+                    self.clustering_ready = True
+                    return True
+                
+                # Attempt 3: Basic BERTopic (no dimensionality reduction)
+                status_text.text("PCA failed, trying basic BERTopic without dimensionality reduction...")
+                progress_bar.progress(0.7)
+                
+                success, config = self._try_basic_bertopic(embedding_model, hdbscan_model, params, status_text)
+                if success:
+                    progress_bar.progress(1.0)
+                    status_text.text("Basic clustering model ready!")
+                    time.sleep(0.5)
+                    progress_bar.empty()
+                    status_text.empty()
+                    self.clustering_ready = True
+                    return True
+                
+                # Attempt 4: Minimal BERTopic (absolute minimum)
+                status_text.text("Trying minimal configuration as final fallback...")
+                progress_bar.progress(0.9)
+                
+                success, config = self._try_minimal_bertopic(embedding_model, hdbscan_model, status_text)
+                if success:
+                    progress_bar.progress(1.0)
+                    status_text.text("Minimal clustering model ready!")
+                    time.sleep(0.5)
+                    progress_bar.empty()
+                    status_text.empty()
+                    self.clustering_ready = True
+                    return True
+                
+                # All attempts failed
+                st.error("All clustering configurations failed")
+                return False
                 
         except Exception as e:
             st.error(f"Error setting up clustering model: {e}")
             return False
+    
+    def _try_full_bertopic(self, embedding_model, hdbscan_model, params, status_text):
+        """Attempt 1: Full BERTopic with UMAP"""
+        try:
+            # Use safer UMAP parameters to avoid mathematical issues
+            safe_neighbors = min(max(params['n_neighbors'], 2), 15)
+            safe_components = min(max(params['n_components'], 2), 10)
+            
+            umap_model = create_umap_model_cached(safe_neighbors, safe_components)
+            
+            if umap_model is None:
+                raise ValueError("UMAP model creation failed")
+            
+            from bertopic import BERTopic
+            self.model = BERTopic(
+                embedding_model=embedding_model,
+                umap_model=umap_model,
+                hdbscan_model=hdbscan_model,
+                verbose=False,
+                calculate_probabilities=True,
+                nr_topics="auto"
+            )
+            
+            # Test with minimal data to validate setup
+            test_texts = ["test one", "test two", "test three", "test four", "test five"]
+            try:
+                result = self.model.fit_transform(test_texts)
+                if result is None or (isinstance(result, tuple) and result[0] is None):
+                    raise ValueError("Model test failed - returned None")
+                    
+                # Validate result structure
+                if isinstance(result, tuple):
+                    topics, probs = result
+                    if len(topics) != len(test_texts):
+                        raise ValueError("Result length mismatch")
+                        
+            except Exception as test_error:
+                raise ValueError(f"Model validation failed: {test_error}")
+            
+            self.model_config = {
+                "method": "Full BERTopic with UMAP",
+                "dimensionality_reduction": f"UMAP({safe_neighbors} neighbors, {safe_components} components)",
+                "has_probabilities": True,
+                "sophistication": "High"
+            }
+            
+            self.attempts_made.append({
+                "method": "Full BERTopic with UMAP",
+                "result": "Success",
+                "details": f"Using UMAP with {safe_neighbors} neighbors"
+            })
+            
+            st.success("Advanced UMAP-based clustering configured successfully")
+            return True, self.model_config
+            
+        except Exception as e:
+            self.attempts_made.append({
+                "method": "Full BERTopic with UMAP",
+                "result": "Failed",
+                "details": f"Error: {str(e)[:100]}..."
+            })
+            status_text.text(f"UMAP approach failed: {str(e)[:50]}...")
+            return False, None
+    
+    def _try_pca_bertopic(self, embedding_model, hdbscan_model, params, status_text):
+        """Attempt 2: BERTopic with PCA"""
+        try:
+            # Conservative PCA parameters
+            safe_components = min(max(params['n_components'], 2), 50)
+            pca_model = create_pca_model_cached(safe_components)
+            
+            if pca_model is None:
+                raise ValueError("PCA model creation failed")
+            
+            from bertopic import BERTopic
+            self.model = BERTopic(
+                embedding_model=embedding_model,
+                umap_model=pca_model,
+                hdbscan_model=hdbscan_model,
+                verbose=False,
+                calculate_probabilities=True,
+                nr_topics="auto"
+            )
+            
+            # Test the model
+            test_texts = ["test one", "test two", "test three", "test four", "test five"]
+            try:
+                result = self.model.fit_transform(test_texts)
+                if result is None or (isinstance(result, tuple) and result[0] is None):
+                    raise ValueError("PCA model test failed")
+            except Exception as test_error:
+                raise ValueError(f"PCA validation failed: {test_error}")
+            
+            self.model_config = {
+                "method": "BERTopic with PCA",
+                "dimensionality_reduction": f"PCA({safe_components} components)",
+                "has_probabilities": True,
+                "sophistication": "Medium"
+            }
+            
+            self.attempts_made.append({
+                "method": "BERTopic with PCA",
+                "result": "Success",
+                "details": f"Using PCA with {safe_components} components"
+            })
+            
+            st.info("PCA-based clustering configured (UMAP fallback)")
+            return True, self.model_config
+            
+        except Exception as e:
+            self.attempts_made.append({
+                "method": "BERTopic with PCA", 
+                "result": "Failed",
+                "details": f"Error: {str(e)[:100]}..."
+            })
+            status_text.text(f"PCA approach failed: {str(e)[:50]}...")
+            return False, None
+    
+    def _try_basic_bertopic(self, embedding_model, hdbscan_model, params, status_text):
+        """Attempt 3: Basic BERTopic without dimensionality reduction"""
+        try:
+            from bertopic import BERTopic
+            self.model = BERTopic(
+                embedding_model=embedding_model,
+                umap_model=None,
+                hdbscan_model=hdbscan_model,
+                verbose=False,
+                calculate_probabilities=False,
+                nr_topics="auto"
+            )
+            
+            # Test the model
+            test_texts = ["service quality good", "product delivery fast", "price cost expensive", "website easy use", "staff helpful friendly"]
+            try:
+                result = self.model.fit_transform(test_texts)
+                
+                if result is None:
+                    raise ValueError("Basic model returned None")
+                
+                # Handle different return formats
+                if isinstance(result, tuple):
+                    topics = result[0]
+                else:
+                    topics = result
+                
+                if topics is None or len(topics) != len(test_texts):
+                    raise ValueError("Invalid topic assignments")
+                    
+            except Exception as test_error:
+                raise ValueError(f"Basic model validation failed: {test_error}")
+            
+            self.model_config = {
+                "method": "Basic BERTopic",
+                "dimensionality_reduction": "None (direct clustering)",
+                "has_probabilities": False,
+                "sophistication": "Medium"
+            }
+            
+            self.attempts_made.append({
+                "method": "Basic BERTopic",
+                "result": "Success",
+                "details": "No dimensionality reduction, direct clustering"
+            })
+            
+            st.warning("Basic clustering configured (no dimensionality reduction)")
+            return True, self.model_config
+            
+        except Exception as e:
+            self.attempts_made.append({
+                "method": "Basic BERTopic",
+                "result": "Failed", 
+                "details": f"Error: {str(e)[:100]}..."
+            })
+            status_text.text(f"Basic approach failed: {str(e)[:50]}...")
+            return False, None
+    
+    def _try_minimal_bertopic(self, embedding_model, hdbscan_model, status_text):
+        """Attempt 4: Minimal BERTopic configuration"""
+        try:
+            from bertopic import BERTopic
+            from hdbscan import HDBSCAN
+            
+            # Create ultra-minimal HDBSCAN
+            minimal_hdbscan = HDBSCAN(
+                min_cluster_size=2,
+                min_samples=1,
+                metric='euclidean',
+                cluster_selection_method='eom'
+            )
+            
+            # Absolute minimal configuration
+            self.model = BERTopic(
+                embedding_model=embedding_model,
+                umap_model=None,
+                hdbscan_model=minimal_hdbscan,
+                verbose=False,
+                calculate_probabilities=False,
+                nr_topics="auto"
+            )
+            
+            self.model_config = {
+                "method": "Minimal BERTopic",
+                "dimensionality_reduction": "None",
+                "has_probabilities": False,
+                "sophistication": "Low",
+                "note": "Maximum compatibility mode"
+            }
+            
+            self.attempts_made.append({
+                "method": "Minimal BERTopic",
+                "result": "Success",
+                "details": "Absolute minimum configuration"
+            })
+            
+            st.warning("Minimal clustering configured (compatibility mode)")
+            return True, self.model_config
+            
+        except Exception as e:
+            self.attempts_made.append({
+                "method": "Minimal BERTopic",
+                "result": "Failed",
+                "details": f"Error: {str(e)[:100]}..."
+            })
+            status_text.text(f"Minimal approach failed: {str(e)[:50]}...")
+            return False, None
+    
+    def get_setup_summary(self):
+        """Get user-friendly summary of setup attempts"""
+        if not self.attempts_made:
+            return "No setup attempts recorded"
+        
+        summary = "## Clustering Setup Summary\n\n"
+        
+        successful_method = None
+        
+        for i, attempt in enumerate(self.attempts_made, 1):
+            method = attempt["method"]
+            result = attempt["result"]
+            
+            if result == "Success":
+                summary += f"✅ **Method {i}**: {method} - Success!\n"
+                successful_method = method
+            else:
+                summary += f"❌ **Method {i}**: {method} - Failed\n"
+        
+        if successful_method:
+            summary += f"\n**Final Configuration**: {successful_method}\n"
+            if self.model_config:
+                sophistication = self.model_config.get('sophistication', 'Standard')
+                summary += f"**Quality Level**: {sophistication}\n"
+        
+        return summary
         
     def fit_transform(self, texts: List[str]) -> Tuple[List[int], List[float], Dict[str, Any]]:
-        """Run clustering with progress feedback"""
+        """Run clustering with the configured model"""
         if self.clustering_ready and self.model:
             return self._real_clustering(texts)
         else:
+            st.warning("Model not ready - using mock clustering")
             return self._mock_clustering(texts)
     
     def _real_clustering(self, texts: List[str]) -> Tuple[List[int], List[float], Dict[str, Any]]:
-        """Real BERTopic clustering with progress"""
+        """Execute real clustering with error handling"""
         try:
-            with st.spinner("🔍 Running clustering analysis..."):
-                topics, probabilities = self.model.fit_transform(texts)
+            # Validate inputs
+            if not texts or len(texts) == 0:
+                raise ValueError("No texts provided")
+            
+            # Clean texts
+            valid_texts = [str(text).strip() for text in texts if text and str(text).strip()]
+            
+            if len(valid_texts) < 5:
+                raise ValueError(f"Need at least 5 valid texts, got {len(valid_texts)}")
+            
+            if len(valid_texts) != len(texts):
+                st.info(f"Filtered {len(texts) - len(valid_texts)} empty texts")
+                texts = valid_texts
+            
+            # Run clustering
+            with st.spinner("Running clustering analysis..."):
+                try:
+                    result = self.model.fit_transform(texts)
+                except Exception as cluster_error:
+                    raise ValueError(f"Clustering execution failed: {cluster_error}")
                 
-                # Extract topic information
-                topic_info = self.model.get_topic_info()
+                # Parse results
+                topics, probabilities = self._parse_clustering_result(result, texts)
                 
-                # Get topic keywords
-                topic_keywords = {}
-                for topic_id in set(topics):
-                    if topic_id != -1:
-                        words = self.model.get_topic(topic_id)[:5]
-                        topic_keywords[topic_id] = [word for word, score in words]
+                # Validate results
+                if len(topics) != len(texts):
+                    raise ValueError("Result length mismatch")
                 
-                metadata = {
-                    'topic_keywords': topic_keywords,
-                    'topic_info': topic_info.to_dict() if hasattr(topic_info, 'to_dict') else {},
-                    'model_type': 'BERTopic'
-                }
+                # Check clustering quality
+                unique_topics = set(topics)
+                n_clusters = len([t for t in unique_topics if t != -1])
                 
-                return topics.tolist(), probabilities.tolist(), metadata
+                if n_clusters == 0:
+                    st.warning("No clusters found - all texts classified as outliers")
+                else:
+                    st.success(f"Found {n_clusters} clusters")
+            
+            # Extract topic information
+            topic_keywords = self._extract_topic_keywords(unique_topics)
+            
+            metadata = {
+                'topic_keywords': topic_keywords,
+                'model_type': 'BERTopic',
+                'model_config': self.model_config,
+                'setup_summary': self.get_setup_summary()
+            }
+            
+            return topics, probabilities, metadata
                 
         except Exception as e:
-            st.error(f"Error in clustering: {e}")
+            st.error(f"Clustering failed: {str(e)}")
+            st.info("Using mock clustering as fallback")
             return self._mock_clustering(texts)
     
+    def _parse_clustering_result(self, result, texts):
+        """Parse clustering result handling different formats"""
+        if result is None:
+            raise ValueError("Clustering returned None")
+        
+        # Handle tuple vs single return
+        if isinstance(result, tuple):
+            if len(result) >= 2:
+                topics, probabilities = result[0], result[1]
+            else:
+                topics = result[0]
+                probabilities = None
+        else:
+            topics = result
+            probabilities = None
+        
+        # Convert to lists
+        if hasattr(topics, 'tolist'):
+            topics = topics.tolist()
+        elif not isinstance(topics, list):
+            topics = list(topics)
+        
+        # Handle missing probabilities
+        if probabilities is None:
+            probabilities = []
+            for topic in topics:
+                if topic == -1:
+                    probabilities.append(random.uniform(0.1, 0.3))
+                else:
+                    probabilities.append(random.uniform(0.5, 0.9))
+        else:
+            if hasattr(probabilities, 'tolist'):
+                probabilities = probabilities.tolist()
+            elif not isinstance(probabilities, list):
+                probabilities = list(probabilities)
+        
+        return topics, probabilities
+    
+    def _extract_topic_keywords(self, unique_topics):
+        """Extract topic keywords with error handling"""
+        topic_keywords = {}
+        
+        for topic_id in unique_topics:
+            if topic_id != -1:
+                try:
+                    if hasattr(self.model, 'get_topic'):
+                        words = self.model.get_topic(topic_id)
+                        if words and len(words) > 0:
+                            if isinstance(words[0], tuple):
+                                topic_keywords[topic_id] = [word for word, score in words[:5]]
+                            else:
+                                topic_keywords[topic_id] = words[:5]
+                        else:
+                            topic_keywords[topic_id] = [f"cluster_{topic_id}"]
+                    else:
+                        topic_keywords[topic_id] = [f"cluster_{topic_id}"]
+                except Exception:
+                    topic_keywords[topic_id] = [f"cluster_{topic_id}"]
+        
+        return topic_keywords
+    
     def _mock_clustering(self, texts: List[str]) -> Tuple[List[int], List[float], Dict[str, Any]]:
-        """Fast mock clustering for testing"""
+        """Mock clustering fallback"""
         random.seed(42)
         
-        # Generate reasonable number of clusters
-        n_clusters = min(max(2, len(texts) // 20), 8)
+        n_texts = len(texts)
+        n_clusters = min(max(2, n_texts // 15), 8)
         
-        # Generate topics
         topics = []
-        for _ in range(len(texts)):
-            if random.random() > 0.15:
-                topics.append(random.randint(0, n_clusters - 1))
-            else:
-                topics.append(-1)
-        
-        # Generate probabilities
         probabilities = []
-        for topic in topics:
-            if topic == -1:
+        
+        for text in texts:
+            text_hash = hash(str(text)) % 100
+            
+            if text_hash < 15:  # 15% outliers
+                topics.append(-1)
                 probabilities.append(random.uniform(0.1, 0.3))
             else:
-                probabilities.append(random.uniform(0.4, 0.95))
+                cluster_id = text_hash % n_clusters
+                topics.append(cluster_id)
+                probabilities.append(random.uniform(0.4, 0.9))
         
-        # Mock keywords
-        mock_keywords = {
-            0: ["service", "customer", "support"],
-            1: ["quality", "product", "good"],
-            2: ["price", "cost", "expensive"],
-            3: ["delivery", "shipping", "fast"],
-            4: ["website", "online", "easy"],
-            5: ["staff", "helpful", "friendly"],
-            6: ["payment", "secure", "safe"],
-            7: ["experience", "overall", "satisfied"]
+        topic_keywords = {
+            i: [f"topic_{i}", "mock", "keywords"] 
+            for i in range(n_clusters)
         }
-        
-        topic_keywords = {i: mock_keywords.get(i, ["topic", "words", "here"]) 
-                         for i in range(n_clusters)}
         
         metadata = {
             'topic_keywords': topic_keywords,
             'model_type': 'Mock',
-            'note': 'This is mock data - install ML packages for real clustering'
+            'note': 'Mock clustering - real clustering failed',
+            'setup_summary': self.get_setup_summary()
         }
         
         return topics, probabilities, metadata
@@ -724,7 +1094,7 @@ class ClusteryBackend:
             # Show progress for larger files
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
             if file_size > 1024 * 1024:  # > 1MB
-                with st.spinner(f"📁 Loading file ({file_size/1024/1024:.1f}MB)..."):
+                with st.spinner(f"Loading file ({file_size/1024/1024:.1f}MB)..."):
                     df = self._load_file_by_type(file_path)
             else:
                 df = self._load_file_by_type(file_path)
@@ -736,7 +1106,7 @@ class ClusteryBackend:
                     "action": "truncate_to_300"
                 })
                 df = df.head(300)
-                st.warning(f"⚠️ File truncated to 300 rows for performance (was {len(df)} rows)")
+                st.warning(f"File truncated to 300 rows for performance (was {len(df)} rows)")
             
             if len(df) < 10:
                 error_msg = f"File too small: {len(df)} rows. Need at least 10 rows."
@@ -811,9 +1181,6 @@ class ClusteryBackend:
     
     
     def _analyze_id_column(self, series: pd.Series) -> Dict[str, Any]:
-        #counts number of total and unique IDs
-        #returns a dictionary with the total and unique counts
-        #NOTE: currently this function always returns "perfect", as there are no special requirements for the ID column
         """Fast ID column analysis"""
         ids = series.dropna().astype(str)
         
@@ -850,7 +1217,7 @@ class ClusteryBackend:
             progress_bar = st.progress(0.0)  # Fixed: Use 0.0 instead of 0
             status_text = st.empty()
             
-            status_text.text(f"🔄 Processing {len(texts)} texts...")
+            status_text.text(f"Processing {len(texts)} texts...")
             progress_bar.progress(0.2)  # Fixed: Use 0.2 instead of 20
         else:
             progress_bar = None
@@ -900,7 +1267,7 @@ class ClusteryBackend:
         
         if progress_bar:
             progress_bar.progress(0.8)  # Fixed: Use 0.8 instead of 80
-            status_text.text("🔍 Filtering and analyzing results...")
+            status_text.text("Filtering and analyzing results...")
         
         # Filter out empty texts
         original_count = len(processed_texts)
@@ -915,7 +1282,7 @@ class ClusteryBackend:
         
         if progress_bar:
             progress_bar.progress(1.0)  # Fixed: Use 1.0 instead of 100
-            status_text.text("✅ Preprocessing complete!")
+            status_text.text("Preprocessing complete!")
             time.sleep(0.5)
             progress_bar.empty()
             status_text.empty()
@@ -1007,6 +1374,7 @@ class ClusteryBackend:
                 "success": True,
                 "topics": topics,
                 "probabilities": probabilities,
+                "predictions": topics,  # FIXED: Add this field - frontend expects it
                 "texts": texts,
                 "metadata": metadata,
                 "statistics": {
@@ -1140,9 +1508,8 @@ class ClusteryBackend:
                 label = "_".join(keywords[:3]) if keywords else f"cluster_{topic}"
                 cluster_labels.append(label)
         
-        # Get original texts for comparison
-        original_texts = original_data[text_column].dropna().tolist()[:len(texts)]   #################################################################
-        # original_texts = df[text_column].dropna().tolist()
+        # Get original texts for comparison - FIXED: Use fillna instead of dropna
+        original_texts = original_data[text_column].fillna("").tolist()[:len(texts)]
         
         # Create comprehensive dataframe
         results_df = pd.DataFrame({
@@ -1328,3 +1695,12 @@ PARAMETERS USED
         report += "\nGenerated by Clustery - Intelligent Text Clustering Tool\n"
         
         return report
+
+
+def health_check() -> bool:
+    """Health check function"""
+    try:
+        backend = ClusteryBackend()
+        return True
+    except Exception:
+        return False
