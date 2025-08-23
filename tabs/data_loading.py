@@ -2,6 +2,7 @@ import streamlit as st
 import os
 from utils.helpers import get_file_from_upload
 from utils.session_state import reset_analysis
+import pandas as pd
 
 def tab_a_data_loading(backend_available):
     """Tab A: Data Loading using backend services with sidebar navigation"""
@@ -135,7 +136,6 @@ def tab_a_data_loading(backend_available):
     
     # Show file metrics in columns
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-    
     with metric_col1:
         st.metric("📄 Total Rows", len(df))
     with metric_col2:
@@ -147,7 +147,11 @@ def tab_a_data_loading(backend_available):
         text_cols = len([col for col in df.columns if df[col].dtype == 'object'])
         st.metric("📝 Text Columns", text_cols)
     
-    # Data preview with better styling
+    
+    ######################################################################################
+    # Data preview (integration with column info)
+
+    """
     with st.expander("👀 Data Preview", expanded=True):
         st.markdown("**Your loaded data:**")
         st.dataframe(
@@ -170,15 +174,16 @@ def tab_a_data_loading(backend_available):
                 'Null Values': null_count
             })
         
-        import pandas as pd
         st.dataframe(pd.DataFrame(col_info), use_container_width=True, hide_index=True)
-    
+    """
+
+
     # Column Selection Section
     st.subheader("⚙️ Column Selection")
 
-
+    ######################################################################################
     # Respondent ID Column Section
-    st.markdown("**🆔 Respondent ID Column (Optional)**")
+    st.markdown("**🆔 Step 1: Choose an ID column (Optional)**")
     auto_option = "Auto-generate IDs"
     id_options = [auto_option] + list(df.columns)
     #setting up the default values for the id column
@@ -186,8 +191,9 @@ def tab_a_data_loading(backend_available):
         st.session_state.respondent_id_column = auto_option 
     
     selected_id = st.selectbox(
-        "Choose ID column:",
-        id_options,
+        label="Choose an ID column:",
+        label_visibility="collapsed",
+        options=id_options,
         index=id_options.index(st.session_state.respondent_id_column),
         help="Select a column to track individual responses",
         key="id_column_selector"
@@ -206,9 +212,10 @@ def tab_a_data_loading(backend_available):
     #     #id_index should be updated to reflect the index of the selected column
     #     st.session_state.id_index = id_options.index(selected_id)
     
-    # Text Column Section
 
-    st.markdown("**📝 Text Column for Clustering**")
+    ######################################################################################
+    # Text Column Section
+    st.markdown("**📝 Step 2: Choose a Text Column for Clustering**")
     text_options = list(df.columns)
             #setting up the default values for the text column
     if "text_column" not in st.session_state:
@@ -224,41 +231,35 @@ def tab_a_data_loading(backend_available):
             st.session_state.text_index = None  # Fallback if column doesn't exist in dataframe
     # Get text column suggestions from backend
     text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+    # st.success message to show the number of potential text columns
     if text_columns:
-        st.success(f"💡 Detected {len(text_columns)} potential text columns")
-        for col in text_columns[:3]:  # Show top 3
-            if not df[col].dropna().empty:
-                sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
-                st.caption(f"**{col}:** {sample_text}")
+        st.success(f"💡 Detected {len(text_columns)} text columns usable for clustering")
+        #for col in text_columns[:3]:  # Show top 3
+        #    if not df[col].dropna().empty:
+        #        sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
+        #        st.caption(f"**{col}:** {sample_text}")
     
-
     st.session_state.text_column = st.selectbox(
-        "Select text column:",
-        text_options,
+        label="Choose a text column:",
+        label_visibility="collapsed",
+        options=text_options,
         index=st.session_state.text_index,
         help="Choose the column with text you want to cluster",
         key="text_column_selector"
     )
     
-
-    
-
-
-    if st.session_state.text_column  is not None:
+    # show 5 sample texts  with st.caption  
+    if st.session_state.text_column is not None:
         # Show preview of selected text column
-        sample_texts = df[st.session_state.text_column ].dropna().head(3).tolist()
+        sample_texts = df[st.session_state.text_column].dropna().head(5).tolist()
         if sample_texts:
-            with st.container():
-                st.markdown("**Sample texts:**")
-                for i, text in enumerate(sample_texts, 1):
-                    st.text_area(
-                        f"Sample {i}:",
-                        str(text)[:200] + "..." if len(str(text)) > 200 else str(text),
-                        height=60,
-                        disabled=True,
-                        key=f"sample_text_{i}"
-                    )
-
+            samples = " | ".join([f"**Sample {i}:** {str(text)[:100] + '...' if len(str(text)) > 100 else str(text)}" for i, text in enumerate(sample_texts, 1)])
+            st.caption(f"**Sample texts:** {samples}")
+            """ preview code with line by line st.caption
+            for i, text in enumerate(sample_texts, 1):
+                truncated_text = str(text)[:200] + "..." if len(str(text)) > 200 else str(text)
+                st.caption(f"**Sample {i}:** {truncated_text}")
+            """
 
     # Validation and Quality Analysis
     if st.session_state.get('text_column'):
