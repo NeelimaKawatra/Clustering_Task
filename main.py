@@ -70,7 +70,7 @@ def initialize_app_with_progress():
         
         # Step 4: Complete setup
         status_text.success("✅ Clustery ready!")
-        progress_bar.progress(1.0)  # Fixed: Use 1.0
+        progress_bar.progress(1.0)  # Fixed: Use 1.0 
         
         time.sleep(0.5)
         

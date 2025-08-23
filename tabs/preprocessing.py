@@ -23,7 +23,7 @@ def tab_b_preprocessing(backend_available):
         st.error("❌ Backend services not available. Please check backend installation.")
         return
     
-    st.subheader("Choose Pre-processing Level")
+    st.subheader("Choose Preprocessing Level")
     
     # Get preprocessing recommendations from backend
     original_texts = df[text_column].dropna().tolist()
@@ -31,28 +31,39 @@ def tab_b_preprocessing(backend_available):
         original_texts, st.session_state.session_id
     )
     
+    """
     # Show recommendations
     with st.expander("💡 Preprocessing Recommendations"):
         st.write(f"**Suggested method:** {recommendations['suggested_method']}")
         for reason in recommendations['reasons']:
             st.write(f"• {reason}")
-    
+    """
+
+    # st. expander to explain the different preprocessing options
+    with st.expander("Understanding what each option does"):
+        st.write(" - No Preprocessing: use your original text")
+        st.write(" - Basic Preprocessing: remove URLs, email addresses, normalize case and whitespace")
+        st.write(" - Advanced Preprocessing: Basic Preprocessing + more powerful tokenization + remove stopwords, punctuation, numbers, short words, etc.")
+        st.write(" - Custom Preprocessing: choose your own settings"
+)
+
     # Preprocessing options
     preprocessing_option = st.radio(
-        "Select preprocessing approach:",
-        [
-            "No preprocessing (use original text)",
-            "Basic cleaning (URLs, emails, whitespace)",
-            "Advanced cleaning (+ stopwords, punctuation)",
-            "Custom preprocessing"
-        ],
-        help="Different levels of text cleaning to improve clustering quality",
+        #"Select preprocessing approach:",
+        label="",                      # no visible label
+        options=[
+                "No Preprocessing",
+                "Basic Preprocessing",
+                "Advanced Preprocessing",
+                "Custom Preprocessing"
+            ],
+        #help="Different levels of text cleaning to improve clustering quality",
         index=1 if recommendations['suggested_method'] == 'basic' else 2
     )
-    
+
     # Custom preprocessing options
     custom_settings = {}
-    if preprocessing_option == "Custom preprocessing":
+    if preprocessing_option == "Custom Preprocessing":
         st.subheader("Custom Settings")
         
         col1, col2 = st.columns(2)
@@ -64,15 +75,15 @@ def tab_b_preprocessing(backend_available):
             custom_settings['remove_numbers'] = st.checkbox("Remove numbers", value=True)
     
     # Process text using backend
-    if st.button("🔄 Process Text", type="primary"):
-        with st.spinner("Processing text..."):
+    if st.button("🔄 Preprocess Text", type="primary"):
+        with st.spinner("Preprocessing text..."):
             
             # Map preprocessing option to backend method
             method_mapping = {
-                "No preprocessing (use original text)": "none",
-                "Basic cleaning (URLs, emails, whitespace)": "basic",
-                "Advanced cleaning (+ stopwords, punctuation)": "advanced",
-                "Custom preprocessing": "custom"
+                "No Preprocessing": "none",
+                "Basic Preprocessing": "basic",
+                "Advanced Preprocessing": "advanced",
+                "Custom Preprocessing": "custom"
             }
             
             method = method_mapping[preprocessing_option]
@@ -87,7 +98,7 @@ def tab_b_preprocessing(backend_available):
             st.session_state.processed_texts = processed_texts
             st.session_state.preprocessing_settings = metadata
             
-            st.success(f"✅ Processing complete! {len(processed_texts)} texts ready for clustering.")
+            st.success(f"✅ Preprocessing complete! {len(processed_texts)} texts ready for clustering.")
     
     # Show results if processing is complete
     if st.session_state.processed_texts is not None:
@@ -208,7 +219,7 @@ def tab_b_preprocessing(backend_available):
         """
                     
         # Processing summary
-        with st.expander("ℹ️ Processing Summary"):
+        with st.expander("ℹ️ Preprocessing Summary"):
             st.write(f"**Method:** {metadata['method']}")
             st.write(f"**Details:** {metadata['details']}")
             st.write(f"**Processing time:** {metadata['processing_time']:.2f} seconds")
