@@ -24,7 +24,7 @@ def tab_a_data_loading(backend_available):
     
     # File upload section - always show, but with different messaging
 
-    st.subheader("📤 Upload Your Data")
+    st.subheader("📤 Upload Your File")
     upload_title = "Choose your data file"
     upload_help = "Upload your survey data or text file for clustering"
     upload_key = "data_file_uploader"
@@ -149,40 +149,40 @@ def tab_a_data_loading(backend_available):
     
     
     ######################################################################################
-    # Data preview (integration with column info)
-
-    """
+    # Data Overview Section
+    # Part 1: Data Preview    
     with st.expander("👀 Data Preview", expanded=True):
-        st.markdown("**Your loaded data:**")
+        st.markdown("**Your Loaded Data (first 300 rows):**")
         st.dataframe(
             df, 
             use_container_width=True,
             hide_index=True
         )
-        
-        # Show column info
-        st.markdown("**Column Information:**")
-        col_info = []
-        for col in df.columns:
-            dtype = str(df[col].dtype)
-            non_null = df[col].count()
-            null_count = len(df) - non_null
-            col_info.append({
-                'Column': col,
-                'Type': dtype,
-                'Non-Null': non_null,
-                'Null Values': null_count
-            })
-        
-        st.dataframe(pd.DataFrame(col_info), use_container_width=True, hide_index=True)
-    """
 
+    # Part 2: Column Statistics
+        st.markdown("**Column Statistics:**")
+        # Create a dictionary to store column statistics
+        col_stats = {}
+        for col in df.columns:
+            total_rows = len(df)
+            empty_rows = df[col].isna().sum() + (df[col] == '').sum()
+            non_empty_rows = total_rows - empty_rows
+            col_type = 'Text' if df[col].dtype == 'object' else 'Non-Text'
+            col_stats[col] = [total_rows, empty_rows, non_empty_rows, col_type]
+        
+        # Create DataFrame with columns as columns and statistics as rows
+        stats_df = pd.DataFrame(col_stats, index=['Total Rows', 'Empty Rows', 'Non-Empty Rows', 'Column Type'])
+        # show the dataframe
+        st.dataframe(stats_df, use_container_width=True)
+    
+
+    ######################################################################################
 
     # Column Selection Section
     st.subheader("⚙️ Column Selection")
 
     ######################################################################################
-    # Respondent ID Column Section
+    # Respondent ID Column Selection
     st.markdown("**🆔 Step 1: Choose an ID column (Optional)**")
     auto_option = "Auto-generate IDs"
     id_options = [auto_option] + list(df.columns)
