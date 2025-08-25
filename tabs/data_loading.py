@@ -199,7 +199,15 @@ def tab_a_data_loading(backend_available):
         key="id_column_selector"
     )
     st.session_state.respondent_id_column = selected_id
+
+    # show 10 sample ids with st.caption
+    if st.session_state.respondent_id_column is not None:
+        sample_ids = df[st.session_state.respondent_id_column].head(10).tolist()
+        if sample_ids:
+            formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
+            st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
     
+    """ 
     # if selected_id is not None:
     #     if selected_id == auto_option:
     #         st.session_state.respondent_id_column = None
@@ -211,7 +219,7 @@ def tab_a_data_loading(backend_available):
     #         st.code(f"Sample IDs: {sample_ids}")
     #     #id_index should be updated to reflect the index of the selected column
     #     st.session_state.id_index = id_options.index(selected_id)
-    
+    """    
 
     ######################################################################################
     # Text Column Section
@@ -231,6 +239,7 @@ def tab_a_data_loading(backend_available):
             st.session_state.text_index = None  # Fallback if column doesn't exist in dataframe
     # Get text column suggestions from backend
     text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+
     # st.success message to show the number of potential text columns
     if text_columns:
         st.success(f"💡 Detected {len(text_columns)} text columns usable for clustering")
@@ -248,18 +257,13 @@ def tab_a_data_loading(backend_available):
         key="text_column_selector"
     )
     
-    # show 5 sample texts  with st.caption  
+    # show 10 sample texts with st.caption  
     if st.session_state.text_column is not None:
-        # Show preview of selected text column
-        sample_texts = df[st.session_state.text_column].dropna().head(5).tolist()
+        sample_texts = df[st.session_state.text_column].dropna().head(10).tolist()
         if sample_texts:
-            samples = " | ".join([f"**Sample {i}:** {str(text)[:100] + '...' if len(str(text)) > 100 else str(text)}" for i, text in enumerate(sample_texts, 1)])
-            st.caption(f"**Sample texts:** {samples}")
-            """ preview code with line by line st.caption
-            for i, text in enumerate(sample_texts, 1):
-                truncated_text = str(text)[:200] + "..." if len(str(text)) > 200 else str(text)
-                st.caption(f"**Sample {i}:** {truncated_text}")
-            """
+            formatted_samples = ", ".join([f'"{str(text)}"' for text in sample_texts])
+            st.caption(f"**Sample texts : {{{formatted_samples}}}**")
+            
 
     # Validation and Quality Analysis
     if st.session_state.get('text_column'):
