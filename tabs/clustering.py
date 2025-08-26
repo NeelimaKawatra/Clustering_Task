@@ -93,15 +93,31 @@ def tab_c_clustering(backend_available):
         st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "clustering"})
     
     st.header("Clustering Configuration")
+
+   
+    # Add this at the beginning of tab_c_clustering function, after the track_activity call:
+
+    # Check prerequisites first
+    if not st.session_state.get('tab_a_complete', False):
+        st.error("Please complete Data Loading first!")
+        st.info("Go to the Data Loading tab to load and configure your data.")
+        return
     
-    # Check if preprocessing is complete
+    if not st.session_state.get('tab_b_complete', False):
+        st.error("Please complete Preprocessing first!")
+        st.info("Go to the Preprocessing tab to process your text data.")
+        return
+    
+    # Check if preprocessing data exists
     if st.session_state.processed_texts is None:
         st.error("No processed text found. Please complete preprocessing first.")
+        st.info("Go to the Preprocessing tab to process your text data.")
         return
     
     if not backend_available:
         st.error("Backend services not available. Please check backend installation.")
         return
+   
     
     texts = st.session_state.processed_texts
     st.success(f"Ready to cluster {len(texts)} processed texts")
@@ -274,6 +290,8 @@ def tab_c_clustering(backend_available):
                 st.session_state.clustering_results = clustering_results
                 st.session_state.tab_c_complete = True
                 
+                # In clustering.py, replace the success section around line 180-190 with:
+
                 # Show what actually happened
                 show_setup_summary(clustering_results)
                 
@@ -289,15 +307,17 @@ def tab_c_clustering(backend_available):
                 })
                 
                 st.balloons()
-                st.success("Clustering successful! Check the Results tab to see your clusters.")
+                
+                # Beautiful completion message
+                st.success("Clustering Analysis Complete!")
+                st.info("Your texts have been successfully grouped into clusters! Visit the **Results** tab to explore your clusters, see detailed analysis, and export your findings.")
                 
                 # Clean up progress indicators
                 time.sleep(1)
                 progress_bar.empty()
                 status_text.empty()
                 
-                # Switch to results tab
-                st.session_state.current_page = "results"
+                # DON'T auto-navigate - let user choose when to view results
                 st.rerun()
                 
             except Exception as e:

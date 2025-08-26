@@ -1,1029 +1,437 @@
-"""
-Clustery Backend - Optimized Implementation with Lazy Loading and Caching
-Fast startup with progressive loading of heavy ML packages
-"""
-
-import logging
-import json
-import pandas as pd
-import re
-import string
+import os
 import time
-import random
-import numpy as np
+import json
+import logging
 import streamlit as st
 from datetime import datetime
-from typing import Dict, Any, List, Tuple, Optional
-import os
+from typing import Dict, Any, List, Optional, Tuple, Union
+import pandas as pd
+import numpy as np
 
 # ============================================================================
-# FAST IMPORTS - Basic packages only
-# ============================================================================
-
-# These are fast and always needed
-BASIC_PACKAGES_AVAILABLE = True
-
-# Heavy packages - import only when needed
-NLTK_AVAILABLE = None
-CLUSTERING_AVAILABLE = None
-
-# Package status tracking
-_package_status = {
-    "nltk_loaded": False,
-    "clustering_loaded": False,
-    "models_cached": False
-}
-
-# ============================================================================
-# CACHING FUNCTIONS - Load once, reuse forever
-# ============================================================================
-
-@st.cache_resource(show_spinner=False)
-def setup_nltk_cached():
-    """Cache NLTK setup - runs once per Streamlit deployment"""
-    global NLTK_AVAILABLE, _package_status
-    
-    try:
-        import nltk
-        
-        # Check if data exists, download if needed
-        try:
-            nltk.data.find('tokenizers/punkt')
-            nltk.data.find('corpora/stopwords')
-        except LookupError:
-            # Only download if not found
-            nltk.download('punkt', quiet=True)
-            nltk.download('stopwords', quiet=True)
-        
-        from nltk.corpus import stopwords
-        from nltk.tokenize import word_tokenize
-        
-        _package_status["nltk_loaded"] = True
-        NLTK_AVAILABLE = True
-        
-        return {
-            "stopwords": stopwords,
-            "word_tokenize": word_tokenize,
-            "available": True
-        }
-    except Exception as e:
-        NLTK_AVAILABLE = False
-        return {"available": False, "error": str(e)}
-
-@st.cache_resource(show_spinner=False)
-def load_sentence_transformer_cached(model_name: str):
-    """Cache sentence transformer models - download once, reuse forever"""
-    try:
-        # Import only when needed
-        from sentence_transformers import SentenceTransformer
-        
-        # This is cached - slow only on first run
-        model = SentenceTransformer(model_name)
-        return model
-    except Exception as e:
-        st.error(f"Failed to load embedding model {model_name}: {e}")
-        return None
-
-@st.cache_resource(show_spinner=False)
-def create_umap_model_cached(n_neighbors: int, n_components: int, random_state: int = 42):
-    """Cache UMAP models by parameters"""
-    try:
-        from umap import UMAP
-        return UMAP(
-            n_neighbors=min(n_neighbors, 15),
-            n_components=min(n_components, 10),
-            min_dist=0.0,
-            metric='cosine',
-            random_state=random_state,
-            low_memory=True,
-            n_jobs=1
-        )
-    except Exception as e:
-        return None
-
-@st.cache_resource(show_spinner=False)
-def create_pca_model_cached(n_components: int, random_state: int = 42):
-    """Cache PCA models"""
-    try:
-        from sklearn.decomposition import PCA
-        return PCA(n_components=n_components, random_state=random_state)
-    except Exception as e:
-        return None
-
-@st.cache_resource(show_spinner=False)
-def create_hdbscan_model_cached(min_cluster_size: int, min_samples: int):
-    """Cache HDBSCAN models by parameters"""
-    try:
-        from hdbscan import HDBSCAN
-        return HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            metric='euclidean',
-            cluster_selection_method='eom'
-        )
-    except Exception as e:
-        return None
-
-# ============================================================================
-# LAZY LOADING FUNCTIONS
-# ============================================================================
-
-def lazy_import_clustering_packages():
-    """Import clustering packages only when needed, with progress feedback"""
-    global CLUSTERING_AVAILABLE, _package_status
-    
-    if _package_status["clustering_loaded"]:
-        return True
-    
-    try:
-        # Show progress to user
-        with st.spinner("Loading clustering libraries (first time only)..."):
-            from bertopic import BERTopic
-            from sentence_transformers import SentenceTransformer
-            from umap import UMAP
-            from hdbscan import HDBSCAN
-            
-            # Store success
-            _package_status["clustering_loaded"] = True
-            CLUSTERING_AVAILABLE = True
-            
-            # Pre-cache a small model for faster first clustering
-            if not _package_status["models_cached"]:
-                st.info("Pre-loading default model for faster clustering...")
-                load_sentence_transformer_cached('all-MiniLM-L6-v2')
-                _package_status["models_cached"] = True
-            
-            return True
-            
-    except ImportError as e:
-        CLUSTERING_AVAILABLE = False
-        st.error(f"Clustering packages not available: {e}")
-        st.info("Install with: pip install bertopic sentence-transformers umap-learn hdbscan")
-        return False
-
-def lazy_import_nltk():
-    """Import NLTK only when needed"""
-    global NLTK_AVAILABLE, _package_status
-    
-    if _package_status["nltk_loaded"]:
-        return setup_nltk_cached()
-    
-    try:
-        with st.spinner("Setting up text processing..."):
-            result = setup_nltk_cached()
-            return result
-    except Exception as e:
-        st.warning(f"NLTK setup failed: {e}. Using basic text processing.")
-        return {"available": False, "error": str(e)}
-
-# ============================================================================
-# FAST ACTIVITY LOGGING
+# ACTIVITY LOGGER CLASS
 # ============================================================================
 
 class ActivityLogger:
-    """Lightweight activity logging"""
+    """Logger for tracking user activities and system events"""
     
     def __init__(self, log_file: str = "clustery_activity.log"):
         self.log_file = log_file
-        self.logger = None
-    
-    def _ensure_logger(self):
-        """Lazy logger setup"""
-        if self.logger is None:
-            logging.basicConfig(
-                level=logging.INFO,
-                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                handlers=[
-                    logging.FileHandler(self.log_file),
-                    logging.StreamHandler()
-                ]
+        
+        # Set up logging
+        self.logger = logging.getLogger("ClusteryActivity")
+        self.logger.setLevel(logging.INFO)
+        
+        # Create file handler if it doesn't exist
+        if not self.logger.handlers:
+            # Create logs directory if it doesn't exist
+            log_dir = os.path.dirname(log_file) if os.path.dirname(log_file) else "logs"
+            if log_dir != "logs":
+                os.makedirs(log_dir, exist_ok=True)
+            elif not os.path.exists("logs"):
+                os.makedirs("logs", exist_ok=True)
+            
+            # File handler
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setLevel(logging.INFO)
+            
+            # Console handler
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.WARNING)
+            
+            # Formatter
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
-            self.logger = logging.getLogger("ClusteryBackend")
+            file_handler.setFormatter(formatter)
+            console_handler.setFormatter(formatter)
+            
+            # Add handlers
+            self.logger.addHandler(file_handler)
+            self.logger.addHandler(console_handler)
     
-    def log_activity(self, activity_type: str, session_id: str, data: Dict[str, Any]):
-        """Log user activity"""
-        self._ensure_logger()
+    def log_activity(self, activity_type: str, session_id: str, 
+                    details: Dict[str, Any], user_id: Optional[str] = None):
+        """Log user activity with structured data"""
+        
         activity_data = {
+            "timestamp": datetime.now().isoformat(),
             "session_id": session_id,
+            "user_id": user_id,
             "activity_type": activity_type,
-            "timestamp": datetime.now().isoformat(),
-            "data": data
+            "details": details
         }
-        self.logger.info(f"ACTIVITY: {json.dumps(activity_data)}")
-        return activity_data
+        
+        # Log as structured JSON
+        self.logger.info(json.dumps(activity_data))
     
-    def log_performance(self, operation: str, session_id: str, duration: float, metadata: Dict[str, Any] = None):
-        """Log performance metrics"""
-        self._ensure_logger()
-        performance_data = {
-            "session_id": session_id,
-            "operation": operation,
-            "duration_seconds": duration,
-            "timestamp": datetime.now().isoformat(),
-            "metadata": metadata or {}
-        }
-        self.logger.info(f"PERFORMANCE: {json.dumps(performance_data)}")
-        return performance_data
-    
-    def log_error(self, error_type: str, session_id: str, error_message: str, context: Dict[str, Any] = None):
-        """Log errors with context"""
-        self._ensure_logger()
+    def log_error(self, error_type: str, session_id: str, 
+                 error_details: str, metadata: Dict[str, Any] = None):
+        """Log errors with structured data"""
+        
         error_data = {
+            "timestamp": datetime.now().isoformat(),
             "session_id": session_id,
             "error_type": error_type,
-            "error_message": error_message,
-            "timestamp": datetime.now().isoformat(),
-            "context": context or {}
+            "error_details": error_details,
+            "metadata": metadata or {}
         }
-        self.logger.error(f"ERROR: {json.dumps(error_data)}")
-        return error_data
+        
+        # Log as structured JSON
+        self.logger.error(json.dumps(error_data))
+    
+    def log_performance(self, operation: str, session_id: str, 
+                       duration: float, metadata: Dict[str, Any] = None):
+        """Log performance metrics"""
+        
+        perf_data = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": session_id,
+            "operation": operation,
+            "duration": duration,
+            "metadata": metadata or {}
+        }
+        
+        self.logger.info(json.dumps(perf_data))
 
 # ============================================================================
-# FAST CONFIGURATION
+# FAST TEXT PROCESSOR CLASS
+# ============================================================================
+
+class FastTextProcessor:
+    """Fast text processing and validation"""
+    
+    def __init__(self):
+        self.stop_words = set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 
+                              'to', 'for', 'of', 'with', 'by', 'this', 'that', 'these', 
+                              'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they'])
+    
+    def validate_text_column(self, series: pd.Series) -> Tuple[bool, str]:
+        """Fast text column validation"""
+        
+        # Check if column exists and has data
+        if series.empty:
+            return False, "Column is empty"
+        
+        # Remove null values for analysis
+        non_null_series = series.dropna()
+        
+        if len(non_null_series) == 0:
+            return False, "Column contains only null values"
+        
+        # Check if most entries are strings and have reasonable length
+        text_count = 0
+        total_checked = min(100, len(non_null_series))  # Sample first 100 for speed
+        
+        for value in non_null_series.head(total_checked):
+            if isinstance(value, str) and len(str(value).strip()) > 5:
+                text_count += 1
+        
+        text_ratio = text_count / total_checked
+        
+        if text_ratio < 0.5:
+            return False, f"Only {text_ratio:.1%} of entries appear to be valid text"
+        
+        return True, f"Good text column: {text_ratio:.1%} valid entries"
+    
+    def analyze_text_quality(self, texts) -> Dict[str, Any]:
+        """Fast text quality analysis"""
+        
+        # Convert pandas Series to list if needed
+        if hasattr(texts, 'tolist'):
+            texts = texts.tolist()
+        elif not isinstance(texts, list):
+            texts = list(texts)
+        
+        if not texts:
+            return {
+                "total_texts": 0,
+                "avg_length": 0,
+                "avg_words": 0,
+                "empty_texts": 0,
+                "short_texts": 0,
+                "unique_texts": 0,
+                "sample_size": 0
+            }
+        
+        # Analyze sample for speed
+        sample_size = min(100, len(texts))
+        sample_texts = texts[:sample_size]
+        
+        lengths = []
+        word_counts = []
+        empty_count = 0
+        short_count = 0
+        unique_texts = set()
+        
+        for text in sample_texts:
+            text_str = str(text).strip()
+            
+            if not text_str:
+                empty_count += 1
+                continue
+            
+            length = len(text_str)
+            words = len(text_str.split())
+            
+            lengths.append(length)
+            word_counts.append(words)
+            unique_texts.add(text_str.lower())  # Add to unique set
+            
+            if length < 10:
+                short_count += 1
+        
+        avg_length = np.mean(lengths) if lengths else 0
+        avg_words = np.mean(word_counts) if word_counts else 0
+        
+        return {
+            "total_texts": len(texts),
+            "avg_length": avg_length,
+            "avg_words": avg_words,
+            "empty_texts": empty_count,
+            "short_texts": short_count,
+            "unique_texts": len(unique_texts),  # Add unique texts count
+            "sample_size": sample_size
+        }
+    
+    def basic_cleaning(self, text: str) -> str:
+        """Basic text cleaning"""
+        
+        if not text:
+            return ""
+        
+        text = str(text).strip()
+        
+        # Remove URLs
+        import re
+        text = re.sub(r'http\S+|www.\S+', '', text)
+        
+        # Remove email addresses
+        text = re.sub(r'\S+@\S+', '', text)
+        
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+    
+    def advanced_cleaning(self, text: str, remove_stopwords: bool = True, 
+                         remove_punctuation: bool = True, min_length: int = 2,
+                         remove_numbers: bool = True) -> str:
+        """Advanced text cleaning"""
+        
+        if not text:
+            return ""
+        
+        # Start with basic cleaning
+        text = self.basic_cleaning(text)
+        
+        if not text:
+            return ""
+        
+        import re
+        
+        # Remove numbers if requested
+        if remove_numbers:
+            text = re.sub(r'\d+', '', text)
+        
+        # Remove punctuation if requested
+        if remove_punctuation:
+            text = re.sub(r'[^\w\s]', ' ', text)
+        
+        # Split into words
+        words = text.lower().split()
+        
+        # Filter words
+        filtered_words = []
+        for word in words:
+            # Check minimum length
+            if len(word) < min_length:
+                continue
+            
+            # Remove stopwords if requested
+            if remove_stopwords and word in self.stop_words:
+                continue
+            
+            filtered_words.append(word)
+        
+        return ' '.join(filtered_words)
+
+# ============================================================================
+# CLUSTERING CONFIG CLASS
 # ============================================================================
 
 class ClusteringConfig:
-    """Fast configuration management"""
+    """Configuration and parameter management for clustering"""
     
-    @staticmethod
-    def get_optimal_parameters(n_texts: int) -> Dict[str, Any]:
-        """Get optimal clustering parameters - no heavy imports needed"""
-        if n_texts < 50:
-            return {
-                'min_cluster_size': max(3, n_texts // 15),
-                'min_samples': 2,
-                'n_neighbors': 5,
-                'n_components': 5,
-                'embedding_model': 'all-MiniLM-L6-v2'
-            }
-        elif n_texts < 200:
-            return {
-                'min_cluster_size': max(5, n_texts // 25),
-                'min_samples': 3,
-                'n_neighbors': 10,
-                'n_components': 8,
-                'embedding_model': 'all-MiniLM-L6-v2'
-            }
+    def __init__(self):
+        self.default_params = {
+            "min_topic_size": 5,
+            "n_neighbors": 15,
+            "n_components": 5,
+            "metric": "cosine",
+            "random_state": 42
+        }
+    
+    def get_optimal_parameters(self, text_count: int) -> Dict[str, Any]:
+        """Get optimal parameters based on text count"""
+        
+        params = self.default_params.copy()
+        
+        # Adjust min_topic_size based on dataset size
+        if text_count < 50:
+            params["min_topic_size"] = 3
+        elif text_count < 100:
+            params["min_topic_size"] = 5
+        elif text_count < 200:
+            params["min_topic_size"] = 8
         else:
-            return {
-                'min_cluster_size': max(8, n_texts // 40),
-                'min_samples': 4,
-                'n_neighbors': 15,
-                'n_components': 10,
-                'embedding_model': 'all-MiniLM-L6-v2'
-            }
+            params["min_topic_size"] = 10
+        
+        # Adjust n_neighbors based on dataset size
+        if text_count < 50:
+            params["n_neighbors"] = 10
+        elif text_count < 150:
+            params["n_neighbors"] = 15
+        else:
+            params["n_neighbors"] = 20
+        
+        return params
     
-    @staticmethod
-    def validate_parameters(params: Dict[str, Any]) -> tuple[bool, str]:
-        """Fast parameter validation"""
-        required_keys = ['min_cluster_size', 'min_samples', 'n_neighbors', 'n_components', 'embedding_model']
+    def validate_parameters(self, params: Dict[str, Any]) -> Tuple[bool, str]:
+        """Validate clustering parameters"""
+        
+        required_keys = ["min_topic_size", "n_neighbors", "n_components"]
         
         for key in required_keys:
             if key not in params:
                 return False, f"Missing required parameter: {key}"
         
-        if params['min_cluster_size'] < 2:
-            return False, "min_cluster_size must be at least 2"
+        # Validate ranges
+        if params["min_topic_size"] < 2:
+            return False, "min_topic_size must be at least 2"
         
-        if params['min_samples'] < 1:
-            return False, "min_samples must be at least 1"
+        if params["n_neighbors"] < 5:
+            return False, "n_neighbors must be at least 5"
+        
+        if params["n_components"] < 2:
+            return False, "n_components must be at least 2"
         
         return True, "Parameters are valid"
 
 # ============================================================================
-# FAST TEXT PROCESSING
-# ============================================================================
-
-class FastTextProcessor:
-    """
-    Light-weight, Streamlit-friendly text cleaner.
-
-    Key upgrades (Aug 18):
-      • spaCy streaming tokenisation (+ optional lemmatization)
-      • Stop-word `set` cached once per instance
-      • `remove_numbers` flag now respected
-    """
-
-    def __init__(self) -> None:
-        self._nltk_tools = None       # lazy-loaded dict of NLTK helpers
-        self._spacy_nlp = None        # cached spaCy model
-        self._stop_set = None         # cached stop-words
-
-    # ---------------------------------------------------------------------- NLTK
-    def _get_nltk_tools(self):
-        """Best-effort import of NLTK components (word_tokenize, stopwords)."""
-        if self._nltk_tools is not None:
-            return self._nltk_tools
-
-        try:
-            import nltk
-            from nltk.tokenize import word_tokenize
-            from nltk.corpus import stopwords
-
-            self._nltk_tools = {
-                "available": True,
-                "word_tokenize": word_tokenize,
-                "stopwords": stopwords,
-            }
-        except Exception:            # noqa: BLE001
-            self._nltk_tools = {"available": False}
-
-        return self._nltk_tools
-
-    # --------------------------------------------------------------------- spaCy
-    @staticmethod
-    @st.cache_resource(show_spinner=False)
-    def _load_spacy_model(lang: str = "en"):
-        """
-        Load (or first-run download) a tiny spaCy model exactly once per session.
-        Returns `None` if spaCy isn't installed.
-        """
-        try:
-            import spacy
-
-            try:                                   
-                return spacy.load(f"{lang}_core_web_sm", disable=["parser", "ner"])
-            except OSError:
-                # Silent first-run download
-                from spacy.cli import download as _spacy_dl
-
-                _spacy_dl(f"{lang}_core_web_sm", False, False)
-                return spacy.load(f"{lang}_core_web_sm", disable=["parser", "ner"])
-        except Exception:            
-            return None
-
-    def _get_spacy_nlp(self):
-        if self._spacy_nlp is None:                 # initialise on first use
-            self._spacy_nlp = self._load_spacy_model()
-        return self._spacy_nlp
-
-    # ---------------------------------------------------------- basic primitives
-    @staticmethod
-    def _remove_basic_stopwords(tokens: List[str]) -> List[str]:
-        basic = {
-            "the", "a", "an", "and", "or", "in", "on", "at", "to",
-            "for", "of", "is", "are", "was", "were",
-        }
-        return [t for t in tokens if t not in basic]
-
-    # ----------------------------------------------------------------- Cleaning
-    @staticmethod
-    def basic_cleaning(text: str) -> str:
-        """Very crude clean: strip URLs/e-mails, lower-case & trim."""
-        text = re.sub(r"(https?://\S+)|(www\.\S+)", "", text, flags=re.I)
-        text = re.sub(r"\S+@\S+", "", text)
-        return text.lower().strip()
-
-    def advanced_cleaning(
-        self,
-        text: str,
-        *,
-        remove_stopwords: bool = True,
-        remove_punctuation: bool = True,
-        min_length: int = 2,
-        remove_numbers: bool = True,
-        lemmatize: bool = False,
-    ) -> str:
-        """
-        Full pipeline — uses spaCy if present, falls back to NLTK/string.split.
-        """
-        # 1️⃣ baseline clean -----------------------------------------------------
-        text = self.basic_cleaning(text)
-        if remove_punctuation:
-            text = text.translate(str.maketrans("", "", string.punctuation))
-
-        # 2️⃣ tokenise (spaCy preferred) ----------------------------------------
-        tokens: List[str] = []
-        nlp = self._get_spacy_nlp()
-        if nlp is not None:
-            for tok in nlp(text):
-                if tok.is_space:
-                    continue
-                token_txt = tok.lemma_.lower() if lemmatize else tok.text.lower()
-                tokens.append(token_txt)
-        else:
-            nltk_tools = self._get_nltk_tools()
-            if nltk_tools.get("available", False):
-                try:
-                    tokens = [
-                        t.lower() for t in nltk_tools["word_tokenize"](text)
-                    ]
-                except Exception:    # noqa: BLE001
-                    tokens = text.split()
-            else:
-                tokens = text.split()
-
-        # 3️⃣ stop-words --------------------------------------------------------
-        if remove_stopwords:
-            if self._stop_set is None:             # build once
-                nltk_tools = self._get_nltk_tools()
-                try:
-                    self._stop_set = (
-                        set(nltk_tools["stopwords"].words("english"))
-                        if nltk_tools.get("available", False)
-                        else set()
-                    )
-                except Exception:                  # noqa: BLE001
-                    self._stop_set = set()
-            tokens = [t for t in tokens if t not in self._stop_set]
-        else:
-            # user asked to keep stop-words — ensure cache exists for future
-            if self._stop_set is None:
-                self._stop_set = set()
-
-        # 4️⃣ length / numeric filters -----------------------------------------
-        tokens = [t for t in tokens if len(t) >= min_length]
-        if remove_numbers:
-            tokens = [
-                t for t in tokens
-                if not t.isdigit() and not any(ch.isdigit() for ch in t)
-            ]
-
-        # 5️⃣ done --------------------------------------------------------------
-        return " ".join(tokens)
-
-    def validate_text_column(self, series: pd.Series) -> tuple[bool, str]:
-        #Light sanity-check that a DataFrame column really holds text."""
-        if series.dtype != "object":
-           return False, "Column is not text type"
-
-        text_data = series.dropna().astype(str)
-        if text_data.empty:
-            return False, "Column contains no valid data"
-
-        meaningful = text_data[text_data.str.len() > 2]
-        has_spaces = text_data.str.contains(" ", na=False).sum()
-
-        if len(meaningful) < len(text_data) * 0.3:
-            return False, "Most entries are too short for clustering"
-        if has_spaces == 0:
-            return False, "Text appears to be single words or codes"
-
-        return True, f"Valid text column with {len(meaningful)} meaningful entries"
-
-    def analyze_text_quality(self, texts: list[str]) -> dict[str, int | float]:
-        # Quick stats
-        valid = [t for t in texts if t and str(t).strip()]
-        if not valid:
-            return {
-                "total_texts": len(texts),
-                "empty_texts": len(texts),
-                "avg_length": 0,
-                "min_length": 0,
-                "max_length": 0,
-                "unique_texts": 0,
-                "avg_words": 0,
-                "min_words": 0,
-                "max_words": 0,
-            }
-
-        lengths = [len(str(t)) for t in valid]
-        words   = [len(str(t).split()) for t in valid]
-
-        return {
-            "total_texts": len(texts),
-            "empty_texts": len(texts) - len(valid),
-            "avg_length": sum(lengths) / len(lengths),
-            "min_length": min(lengths),
-            "max_length": max(lengths),
-            "unique_texts": len(set(map(str, valid))),
-            "avg_words":   sum(words) / len(words),
-            "min_words":   min(words),
-            "max_words":   max(words),
-        }
-
-# ============================================================================
-# PROGRESSIVE FALLBACK CLUSTERING MODEL
+# OPTIMIZED CLUSTERING MODEL CLASS
 # ============================================================================
 
 class OptimizedClusteringModel:
-    """Clustering model with progressive fallback and clear user communication"""
+    """Optimized clustering model with lazy loading"""
     
     def __init__(self):
         self.model = None
-        self.clustering_ready = False
-        self.model_config = None
+        self.vectorizer = None
+        self.is_setup = False
         self.attempts_made = []
     
     def setup_model(self, params: Dict[str, Any]) -> bool:
-        """Setup clustering model with progressive fallback approach"""
-        
-        if not lazy_import_clustering_packages():
-            st.error("Failed to load clustering packages")
-            return False
-        
-        self.attempts_made = []
+        """Setup the clustering model"""
         
         try:
-            progress_col1, progress_col2 = st.columns([1, 3])
+            # Lazy import of heavy dependencies
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.cluster import KMeans
+            from sklearn.decomposition import TruncatedSVD
+            from sklearn.pipeline import Pipeline
             
-            with progress_col1:
-                st.write("**Model Setup:**")
+            # Setup vectorizer
+            self.vectorizer = TfidfVectorizer(
+                max_features=1000,
+                stop_words='english',
+                ngram_range=(1, 2),
+                max_df=0.9,
+                min_df=2
+            )
             
-            with progress_col2:
-                progress_bar = st.progress(0.0)
-                status_text = st.empty()
-                
-                # Step 1: Load embedding model
-                status_text.text("Loading text embedding model...")
-                progress_bar.progress(0.1)
-                embedding_model = load_sentence_transformer_cached(params['embedding_model'])
-                
-                if embedding_model is None:
-                    st.error("Failed to load embedding model")
-                    return False
-                
-                # Step 2: Create HDBSCAN model
-                status_text.text("Setting up clustering algorithm...")
-                progress_bar.progress(0.2)
-                hdbscan_model = create_hdbscan_model_cached(
-                    params['min_cluster_size'],
-                    params['min_samples']
-                )
-                
-                if hdbscan_model is None:
-                    st.error("Failed to create HDBSCAN model")
-                    return False
-                
-                # Step 3: Progressive approach - try sophisticated methods first
-                from bertopic import BERTopic
-                
-                # Attempt 1: Full BERTopic with UMAP
-                status_text.text("Attempting advanced configuration with UMAP...")
-                progress_bar.progress(0.3)
-                
-                success, config = self._try_full_bertopic(embedding_model, hdbscan_model, params, status_text)
-                if success:
-                    progress_bar.progress(1.0)
-                    status_text.text("Advanced clustering model ready!")
-                    time.sleep(0.5)
-                    progress_bar.empty()
-                    status_text.empty()
-                    self.clustering_ready = True
-                    return True
-                
-                # Attempt 2: BERTopic with PCA
-                status_text.text("UMAP failed, trying PCA dimensionality reduction...")
-                progress_bar.progress(0.5)
-                
-                success, config = self._try_pca_bertopic(embedding_model, hdbscan_model, params, status_text)
-                if success:
-                    progress_bar.progress(1.0)
-                    status_text.text("PCA-based clustering model ready!")
-                    time.sleep(0.5)
-                    progress_bar.empty()
-                    status_text.empty()
-                    self.clustering_ready = True
-                    return True
-                
-                # Attempt 3: Basic BERTopic (no dimensionality reduction)
-                status_text.text("PCA failed, trying basic BERTopic without dimensionality reduction...")
-                progress_bar.progress(0.7)
-                
-                success, config = self._try_basic_bertopic(embedding_model, hdbscan_model, params, status_text)
-                if success:
-                    progress_bar.progress(1.0)
-                    status_text.text("Basic clustering model ready!")
-                    time.sleep(0.5)
-                    progress_bar.empty()
-                    status_text.empty()
-                    self.clustering_ready = True
-                    return True
-                
-                # Attempt 4: Minimal BERTopic (absolute minimum)
-                status_text.text("Trying minimal configuration as final fallback...")
-                progress_bar.progress(0.9)
-                
-                success, config = self._try_minimal_bertopic(embedding_model, hdbscan_model, status_text)
-                if success:
-                    progress_bar.progress(1.0)
-                    status_text.text("Minimal clustering model ready!")
-                    time.sleep(0.5)
-                    progress_bar.empty()
-                    status_text.empty()
-                    self.clustering_ready = True
-                    return True
-                
-                # All attempts failed
-                st.error("All clustering configurations failed")
-                return False
-                
+            # Setup dimensionality reduction
+            self.reducer = TruncatedSVD(
+                n_components=min(params.get("n_components", 5), 50),
+                random_state=params.get("random_state", 42)
+            )
+            
+            # Setup clustering model
+            n_clusters = max(2, params.get("min_topic_size", 5))
+            self.model = KMeans(
+                n_clusters=n_clusters,
+                random_state=params.get("random_state", 42),
+                n_init=10,
+                max_iter=300
+            )
+            
+            self.is_setup = True
+            return True
+            
+        except ImportError as e:
+            self.attempts_made.append(f"Import error: {str(e)}")
+            return False
         except Exception as e:
-            st.error(f"Error setting up clustering model: {e}")
+            self.attempts_made.append(f"Setup error: {str(e)}")
             return False
     
-    def _try_full_bertopic(self, embedding_model, hdbscan_model, params, status_text):
-        """Attempt 1: Full BERTopic with UMAP"""
-        try:
-            # Use safer UMAP parameters to avoid mathematical issues
-            safe_neighbors = min(max(params['n_neighbors'], 2), 15)
-            safe_components = min(max(params['n_components'], 2), 10)
-            
-            umap_model = create_umap_model_cached(safe_neighbors, safe_components)
-            
-            if umap_model is None:
-                raise ValueError("UMAP model creation failed")
-            
-            from bertopic import BERTopic
-            self.model = BERTopic(
-                embedding_model=embedding_model,
-                umap_model=umap_model,
-                hdbscan_model=hdbscan_model,
-                verbose=False,
-                calculate_probabilities=True,
-                nr_topics="auto"
-            )
-            
-            # Test with minimal data to validate setup
-            test_texts = ["test one", "test two", "test three", "test four", "test five"]
-            try:
-                result = self.model.fit_transform(test_texts)
-                if result is None or (isinstance(result, tuple) and result[0] is None):
-                    raise ValueError("Model test failed - returned None")
-                    
-                # Validate result structure
-                if isinstance(result, tuple):
-                    topics, probs = result
-                    if len(topics) != len(test_texts):
-                        raise ValueError("Result length mismatch")
-                        
-            except Exception as test_error:
-                raise ValueError(f"Model validation failed: {test_error}")
-            
-            self.model_config = {
-                "method": "Full BERTopic with UMAP",
-                "dimensionality_reduction": f"UMAP({safe_neighbors} neighbors, {safe_components} components)",
-                "has_probabilities": True,
-                "sophistication": "High"
-            }
-            
-            self.attempts_made.append({
-                "method": "Full BERTopic with UMAP",
-                "result": "Success",
-                "details": f"Using UMAP with {safe_neighbors} neighbors"
-            })
-            
-            st.success("Advanced UMAP-based clustering configured successfully")
-            return True, self.model_config
-            
-        except Exception as e:
-            self.attempts_made.append({
-                "method": "Full BERTopic with UMAP",
-                "result": "Failed",
-                "details": f"Error: {str(e)[:100]}..."
-            })
-            status_text.text(f"UMAP approach failed: {str(e)[:50]}...")
-            return False, None
-    
-    def _try_pca_bertopic(self, embedding_model, hdbscan_model, params, status_text):
-        """Attempt 2: BERTopic with PCA"""
-        try:
-            # Conservative PCA parameters
-            safe_components = min(max(params['n_components'], 2), 50)
-            pca_model = create_pca_model_cached(safe_components)
-            
-            if pca_model is None:
-                raise ValueError("PCA model creation failed")
-            
-            from bertopic import BERTopic
-            self.model = BERTopic(
-                embedding_model=embedding_model,
-                umap_model=pca_model,
-                hdbscan_model=hdbscan_model,
-                verbose=False,
-                calculate_probabilities=True,
-                nr_topics="auto"
-            )
-            
-            # Test the model
-            test_texts = ["test one", "test two", "test three", "test four", "test five"]
-            try:
-                result = self.model.fit_transform(test_texts)
-                if result is None or (isinstance(result, tuple) and result[0] is None):
-                    raise ValueError("PCA model test failed")
-            except Exception as test_error:
-                raise ValueError(f"PCA validation failed: {test_error}")
-            
-            self.model_config = {
-                "method": "BERTopic with PCA",
-                "dimensionality_reduction": f"PCA({safe_components} components)",
-                "has_probabilities": True,
-                "sophistication": "Medium"
-            }
-            
-            self.attempts_made.append({
-                "method": "BERTopic with PCA",
-                "result": "Success",
-                "details": f"Using PCA with {safe_components} components"
-            })
-            
-            st.info("PCA-based clustering configured (UMAP fallback)")
-            return True, self.model_config
-            
-        except Exception as e:
-            self.attempts_made.append({
-                "method": "BERTopic with PCA", 
-                "result": "Failed",
-                "details": f"Error: {str(e)[:100]}..."
-            })
-            status_text.text(f"PCA approach failed: {str(e)[:50]}...")
-            return False, None
-    
-    def _try_basic_bertopic(self, embedding_model, hdbscan_model, params, status_text):
-        """Attempt 3: Basic BERTopic without dimensionality reduction"""
-        try:
-            from bertopic import BERTopic
-            self.model = BERTopic(
-                embedding_model=embedding_model,
-                umap_model=None,
-                hdbscan_model=hdbscan_model,
-                verbose=False,
-                calculate_probabilities=False,
-                nr_topics="auto"
-            )
-            
-            # Test the model
-            test_texts = ["service quality good", "product delivery fast", "price cost expensive", "website easy use", "staff helpful friendly"]
-            try:
-                result = self.model.fit_transform(test_texts)
-                
-                if result is None:
-                    raise ValueError("Basic model returned None")
-                
-                # Handle different return formats
-                if isinstance(result, tuple):
-                    topics = result[0]
-                else:
-                    topics = result
-                
-                if topics is None or len(topics) != len(test_texts):
-                    raise ValueError("Invalid topic assignments")
-                    
-            except Exception as test_error:
-                raise ValueError(f"Basic model validation failed: {test_error}")
-            
-            self.model_config = {
-                "method": "Basic BERTopic",
-                "dimensionality_reduction": "None (direct clustering)",
-                "has_probabilities": False,
-                "sophistication": "Medium"
-            }
-            
-            self.attempts_made.append({
-                "method": "Basic BERTopic",
-                "result": "Success",
-                "details": "No dimensionality reduction, direct clustering"
-            })
-            
-            st.warning("Basic clustering configured (no dimensionality reduction)")
-            return True, self.model_config
-            
-        except Exception as e:
-            self.attempts_made.append({
-                "method": "Basic BERTopic",
-                "result": "Failed", 
-                "details": f"Error: {str(e)[:100]}..."
-            })
-            status_text.text(f"Basic approach failed: {str(e)[:50]}...")
-            return False, None
-    
-    def _try_minimal_bertopic(self, embedding_model, hdbscan_model, status_text):
-        """Attempt 4: Minimal BERTopic configuration"""
-        try:
-            from bertopic import BERTopic
-            from hdbscan import HDBSCAN
-            
-            # Create ultra-minimal HDBSCAN
-            minimal_hdbscan = HDBSCAN(
-                min_cluster_size=2,
-                min_samples=1,
-                metric='euclidean',
-                cluster_selection_method='eom'
-            )
-            
-            # Absolute minimal configuration
-            self.model = BERTopic(
-                embedding_model=embedding_model,
-                umap_model=None,
-                hdbscan_model=minimal_hdbscan,
-                verbose=False,
-                calculate_probabilities=False,
-                nr_topics="auto"
-            )
-            
-            self.model_config = {
-                "method": "Minimal BERTopic",
-                "dimensionality_reduction": "None",
-                "has_probabilities": False,
-                "sophistication": "Low",
-                "note": "Maximum compatibility mode"
-            }
-            
-            self.attempts_made.append({
-                "method": "Minimal BERTopic",
-                "result": "Success",
-                "details": "Absolute minimum configuration"
-            })
-            
-            st.warning("Minimal clustering configured (compatibility mode)")
-            return True, self.model_config
-            
-        except Exception as e:
-            self.attempts_made.append({
-                "method": "Minimal BERTopic",
-                "result": "Failed",
-                "details": f"Error: {str(e)[:100]}..."
-            })
-            status_text.text(f"Minimal approach failed: {str(e)[:50]}...")
-            return False, None
-    
-    def get_setup_summary(self):
-        """Get user-friendly summary of setup attempts"""
-        if not self.attempts_made:
-            return "No setup attempts recorded"
-        
-        summary = "## Clustering Setup Summary\n\n"
-        
-        successful_method = None
-        
-        for i, attempt in enumerate(self.attempts_made, 1):
-            method = attempt["method"]
-            result = attempt["result"]
-            
-            if result == "Success":
-                summary += f"✅ **Method {i}**: {method} - Success!\n"
-                successful_method = method
-            else:
-                summary += f"❌ **Method {i}**: {method} - Failed\n"
-        
-        if successful_method:
-            summary += f"\n**Final Configuration**: {successful_method}\n"
-            if self.model_config:
-                sophistication = self.model_config.get('sophistication', 'Standard')
-                summary += f"**Quality Level**: {sophistication}\n"
-        
-        return summary
-        
     def fit_transform(self, texts: List[str]) -> Tuple[List[int], List[float], Dict[str, Any]]:
-        """Run clustering with the configured model"""
-        if self.clustering_ready and self.model:
-            return self._real_clustering(texts)
-        else:
-            st.warning("Model not ready - using mock clustering")
-            return self._mock_clustering(texts)
-    
-    def _real_clustering(self, texts: List[str]) -> Tuple[List[int], List[float], Dict[str, Any]]:
-        """Execute real clustering with error handling"""
+        """Fit and transform texts"""
+        
+        if not self.is_setup:
+            raise ValueError("Model not setup. Call setup_model first.")
+        
         try:
-            # Validate inputs
-            if not texts or len(texts) == 0:
-                raise ValueError("No texts provided")
+            # Vectorize texts
+            X = self.vectorizer.fit_transform(texts)
             
-            # Clean texts
-            valid_texts = [str(text).strip() for text in texts if text and str(text).strip()]
+            # Reduce dimensions
+            X_reduced = self.reducer.fit_transform(X)
             
-            if len(valid_texts) < 5:
-                raise ValueError(f"Need at least 5 valid texts, got {len(valid_texts)}")
+            # Fit clustering
+            cluster_labels = self.model.fit_predict(X_reduced)
             
-            if len(valid_texts) != len(texts):
-                st.info(f"Filtered {len(texts) - len(valid_texts)} empty texts")
-                texts = valid_texts
+            # Calculate simple confidence scores (distance from centroid)
+            from sklearn.metrics.pairwise import euclidean_distances
             
-            # Run clustering
-            with st.spinner("Running clustering analysis..."):
-                try:
-                    result = self.model.fit_transform(texts)
-                except Exception as cluster_error:
-                    raise ValueError(f"Clustering execution failed: {cluster_error}")
-                
-                # Parse results
-                topics, probabilities = self._parse_clustering_result(result, texts)
-                
-                # Validate results
-                if len(topics) != len(texts):
-                    raise ValueError("Result length mismatch")
-                
-                # Check clustering quality
-                unique_topics = set(topics)
-                n_clusters = len([t for t in unique_topics if t != -1])
-                
-                if n_clusters == 0:
-                    st.warning("No clusters found - all texts classified as outliers")
+            centroids = self.model.cluster_centers_
+            distances = euclidean_distances(X_reduced, centroids)
+            
+            # Get distance to assigned cluster for each point
+            confidences = []
+            for i, label in enumerate(cluster_labels):
+                if label >= 0:
+                    dist = distances[i][label]
+                    # Convert distance to confidence (lower distance = higher confidence)
+                    confidence = max(0.1, 1.0 - (dist / np.max(distances)))
+                    confidences.append(confidence)
                 else:
-                    st.success(f"Found {n_clusters} clusters")
+                    confidences.append(0.1)  # Low confidence for outliers
             
-            # Extract topic information
-            topic_keywords = self._extract_topic_keywords(unique_topics)
+            # Generate topic keywords
+            feature_names = self.vectorizer.get_feature_names_out()
+            topic_keywords = {}
+            
+            for cluster_id in set(cluster_labels):
+                if cluster_id >= 0:
+                    # Get top terms for this cluster
+                    cluster_center = centroids[cluster_id]
+                    top_indices = cluster_center.argsort()[-5:][::-1]
+                    keywords = [feature_names[i] for i in top_indices]
+                    topic_keywords[cluster_id] = keywords
             
             metadata = {
-                'topic_keywords': topic_keywords,
-                'model_type': 'BERTopic',
-                'model_config': self.model_config,
-                'setup_summary': self.get_setup_summary()
+                "model_type": "KMeans",
+                "n_features": X.shape[1],
+                "n_components": X_reduced.shape[1],
+                "topic_keywords": topic_keywords
             }
             
-            return topics, probabilities, metadata
-                
-        except Exception as e:
-            st.error(f"Clustering failed: {str(e)}")
-            st.info("Using mock clustering as fallback")
-            return self._mock_clustering(texts)
-    
-    def _parse_clustering_result(self, result, texts):
-        """Parse clustering result handling different formats"""
-        if result is None:
-            raise ValueError("Clustering returned None")
-        
-        # Handle tuple vs single return
-        if isinstance(result, tuple):
-            if len(result) >= 2:
-                topics, probabilities = result[0], result[1]
-            else:
-                topics = result[0]
-                probabilities = None
-        else:
-            topics = result
-            probabilities = None
-        
-        # Convert to lists
-        if hasattr(topics, 'tolist'):
-            topics = topics.tolist()
-        elif not isinstance(topics, list):
-            topics = list(topics)
-        
-        # Handle missing probabilities
-        if probabilities is None:
-            probabilities = []
-            for topic in topics:
-                if topic == -1:
-                    probabilities.append(random.uniform(0.1, 0.3))
-                else:
-                    probabilities.append(random.uniform(0.5, 0.9))
-        else:
-            if hasattr(probabilities, 'tolist'):
-                probabilities = probabilities.tolist()
-            elif not isinstance(probabilities, list):
-                probabilities = list(probabilities)
-        
-        return topics, probabilities
-    
-    def _extract_topic_keywords(self, unique_topics):
-        """Extract topic keywords with error handling"""
-        topic_keywords = {}
-        
-        for topic_id in unique_topics:
-            if topic_id != -1:
-                try:
-                    if hasattr(self.model, 'get_topic'):
-                        words = self.model.get_topic(topic_id)
-                        if words and len(words) > 0:
-                            if isinstance(words[0], tuple):
-                                topic_keywords[topic_id] = [word for word, score in words[:5]]
-                            else:
-                                topic_keywords[topic_id] = words[:5]
-                        else:
-                            topic_keywords[topic_id] = [f"cluster_{topic_id}"]
-                    else:
-                        topic_keywords[topic_id] = [f"cluster_{topic_id}"]
-                except Exception:
-                    topic_keywords[topic_id] = [f"cluster_{topic_id}"]
-        
-        return topic_keywords
-    
-    def _mock_clustering(self, texts: List[str]) -> Tuple[List[int], List[float], Dict[str, Any]]:
-        """Mock clustering fallback"""
-        random.seed(42)
-        
-        n_texts = len(texts)
-        n_clusters = min(max(2, n_texts // 15), 8)
-        
-        topics = []
-        probabilities = []
-        
-        for text in texts:
-            text_hash = hash(str(text)) % 100
+            return cluster_labels.tolist(), confidences, metadata
             
-            if text_hash < 15:  # 15% outliers
-                topics.append(-1)
-                probabilities.append(random.uniform(0.1, 0.3))
-            else:
-                cluster_id = text_hash % n_clusters
-                topics.append(cluster_id)
-                probabilities.append(random.uniform(0.4, 0.9))
-        
-        topic_keywords = {
-            i: [f"topic_{i}", "mock", "keywords"] 
-            for i in range(n_clusters)
-        }
-        
-        metadata = {
-            'topic_keywords': topic_keywords,
-            'model_type': 'Mock',
-            'note': 'Mock clustering - real clustering failed',
-            'setup_summary': self.get_setup_summary()
-        }
-        
-        return topics, probabilities, metadata
+        except Exception as e:
+            self.attempts_made.append(f"Clustering error: {str(e)}")
+            raise e
 
 # ============================================================================
 # OPTIMIZED MAIN BACKEND CLASS
@@ -1105,8 +513,9 @@ class ClusteryBackend:
                     "original_rows": len(df),
                     "action": "truncate_to_300"
                 })
+                original_length = len(df)
                 df = df.head(300)
-                st.warning(f"File truncated to 300 rows for performance (was {len(df)} rows)")
+                st.warning(f"File truncated to 300 rows for performance (was {original_length} rows)")
             
             if len(df) < 10:
                 error_msg = f"File too small: {len(df)} rows. Need at least 10 rows."
@@ -1148,8 +557,9 @@ class ClusteryBackend:
             "text_quality": {},
             "recommendations": []
         }
+        
         # Add ID column analysis
-        if id_column:
+        if id_column and id_column != "Auto-generate IDs":
             validation_result["id_column_analysis"] = self._analyze_id_column(df[id_column])
         else:
             # For auto-generated IDs, provide default analysis
@@ -1166,9 +576,8 @@ class ClusteryBackend:
         validation_result["text_column_message"] = message
         
         if is_valid:
-            # Analyze text quality
-            validation_result["text_quality"] = self.text_processor.analyze_text_quality(df[text_column])
-        
+            # Analyze text quality - convert Series to list
+            validation_result["text_quality"] = self.text_processor.analyze_text_quality(df[text_column].tolist())
         
         # Log column validation
         self.logger.log_activity("column_validation", session_id, {
@@ -1178,22 +587,37 @@ class ClusteryBackend:
         })
         
         return validation_result
-    
-    
+
     def _analyze_id_column(self, series: pd.Series) -> Dict[str, Any]:
-        """Fast ID column analysis"""
-        ids = series.dropna().astype(str)
+        """Simple ID column analysis - only check if numeric"""
         
         total_count = len(series)
-        valid_count = len(ids)
-        unique_count = len(ids.unique())
-        duplicates = total_count - unique_count
-        return {
-            "status": "perfect",
-            "message": f"Perfect! {total_count} IDs",
-            "total": total_count,
-            "unique": unique_count
-        }
+        non_null_series = series.dropna()
+        
+        if len(non_null_series) == 0:
+            return {
+                "status": "invalid",
+                "message": "Column is empty",
+                "total": total_count,
+                "unique": 0
+            }
+        
+        # Check if column is numeric
+        try:
+            pd.to_numeric(non_null_series.head(10), errors='raise')
+            return {
+                "status": "perfect",
+                "message": "Good numeric ID column",
+                "total": total_count,
+                "unique": len(non_null_series.unique())
+            }
+        except:
+            return {
+                "status": "text_column", 
+                "message": "Selected column contains text. We need numbers to proceed.",
+                "total": total_count,
+                "unique": len(non_null_series.unique())
+            }
     
     # ========================================================================
     # TEXT PREPROCESSING (Fast)
@@ -1214,11 +638,11 @@ class ClusteryBackend:
         
         # Show progress for large datasets
         if len(texts) > 100:
-            progress_bar = st.progress(0.0)  # Fixed: Use 0.0 instead of 0
+            progress_bar = st.progress(0.0)
             status_text = st.empty()
             
             status_text.text(f"Processing {len(texts)} texts...")
-            progress_bar.progress(0.2)  # Fixed: Use 0.2 instead of 20
+            progress_bar.progress(0.2)
         else:
             progress_bar = None
             status_text = None
@@ -1233,7 +657,6 @@ class ClusteryBackend:
             for i, text in enumerate(texts):
                 processed_texts.append(self.text_processor.basic_cleaning(text))
                 if progress_bar and i % 50 == 0:
-                    # Fixed: Use values between 0.0 and 1.0
                     progress_bar.progress(0.2 + (i / len(texts)) * 0.6)
             details = "Basic cleaning: URLs, emails, whitespace normalization"
             
@@ -1242,7 +665,6 @@ class ClusteryBackend:
             for i, text in enumerate(texts):
                 processed_texts.append(self.text_processor.advanced_cleaning(text))
                 if progress_bar and i % 50 == 0:
-                    # Fixed: Use values between 0.0 and 1.0
                     progress_bar.progress(0.2 + (i / len(texts)) * 0.6)
             details = "Advanced cleaning: URLs, emails, stopwords, punctuation, short words"
             
@@ -1254,11 +676,11 @@ class ClusteryBackend:
                         text,
                         remove_stopwords=custom_settings.get('remove_stopwords', True),
                         remove_punctuation=custom_settings.get('remove_punctuation', True),
-                        min_length=custom_settings.get('min_length', 2)
+                        min_length=custom_settings.get('min_length', 2),
+                        remove_numbers=custom_settings.get('remove_numbers', True)
                     )
                 )
                 if progress_bar and i % 50 == 0:
-                    # Fixed: Use values between 0.0 and 1.0
                     progress_bar.progress(0.2 + (i / len(texts)) * 0.6)
             details = f"Custom: {custom_settings}"
             
@@ -1266,7 +688,7 @@ class ClusteryBackend:
             raise ValueError(f"Unknown preprocessing method: {method}")
         
         if progress_bar:
-            progress_bar.progress(0.8)  # Fixed: Use 0.8 instead of 80
+            progress_bar.progress(0.8)
             status_text.text("Filtering and analyzing results...")
         
         # Filter out empty texts
@@ -1281,7 +703,7 @@ class ClusteryBackend:
         processing_time = time.time() - start_time
         
         if progress_bar:
-            progress_bar.progress(1.0)  # Fixed: Use 1.0 instead of 100
+            progress_bar.progress(1.0)
             status_text.text("Preprocessing complete!")
             time.sleep(0.5)
             progress_bar.empty()
@@ -1374,7 +796,7 @@ class ClusteryBackend:
                 "success": True,
                 "topics": topics,
                 "probabilities": probabilities,
-                "predictions": topics,  # FIXED: Add this field - frontend expects it
+                "predictions": topics,
                 "texts": texts,
                 "metadata": metadata,
                 "statistics": {
@@ -1420,7 +842,10 @@ class ClusteryBackend:
             return {
                 "success": False,
                 "error": error_msg,
-                "duration": error_duration
+                "duration": error_duration,
+                "debug_info": {
+                    "attempts_made": self.clustering_model.attempts_made if hasattr(self.clustering_model, 'attempts_made') else []
+                }
             }
     
     def get_cluster_details(self, results: Dict[str, Any], session_id: str) -> Dict[str, Any]:
@@ -1471,7 +896,7 @@ class ClusteryBackend:
             
             cluster_details[-1] = {
                 "size": len(outlier_texts),
-                "avg_confidence": sum(outlier_probs) / len(outlier_probs),
+                "avg_confidence": sum(outlier_probs) / len(outlier_probs) if outlier_probs else 0,
                 "keywords": ["outlier"],
                 "texts": outlier_texts,
                 "confidences": outlier_probs
@@ -1492,9 +917,11 @@ class ClusteryBackend:
         texts = clustering_results["texts"]
         topic_keywords = clustering_results["metadata"].get("topic_keywords", {})
         
-        # Create respondent IDs
-        if id_column and id_column in original_data.columns:
-            ids = original_data[id_column].tolist()[:len(texts)]
+        # Use clean IDs if available, otherwise create them
+        if hasattr(st.session_state, 'clean_ids') and st.session_state.clean_ids:
+            ids = st.session_state.clean_ids[:len(texts)]
+        elif id_column and id_column != "Auto-generate IDs" and id_column in original_data.columns:
+            ids = original_data[id_column].astype(str).tolist()[:len(texts)]
         else:
             ids = [f"ID_{i+1:03d}" for i in range(len(texts))]
         
@@ -1508,8 +935,11 @@ class ClusteryBackend:
                 label = "_".join(keywords[:3]) if keywords else f"cluster_{topic}"
                 cluster_labels.append(label)
         
-        # Get original texts for comparison - FIXED: Use fillna instead of dropna
-        original_texts = original_data[text_column].fillna("").tolist()[:len(texts)]
+        # Get original texts for comparison
+        if original_texts_col and len(original_texts_col) >= len(texts):
+            original_texts = original_texts_col[:len(texts)]
+        else:
+            original_texts = original_data[text_column].fillna("").tolist()[:len(texts)]
         
         # Create comprehensive dataframe
         results_df = pd.DataFrame({

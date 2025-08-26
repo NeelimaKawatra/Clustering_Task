@@ -1,11 +1,22 @@
 import streamlit as st
 import os
+import re
 from utils.helpers import get_file_from_upload
 from utils.session_state import reset_analysis
 import pandas as pd
 
+def get_safe_index(options_list, value, default=0):
+    """Safely get index of value in list, return default if not found"""
+    try:
+        if value is not None and value in options_list:
+            return options_list.index(value)
+        else:
+            return default
+    except (ValueError, TypeError):
+        return default
+
 def tab_a_data_loading(backend_available):
-    """Tab A: Data Loading using backend services with sidebar navigation"""
+    """Tab A: Data Loading with automatic completion and cascading"""
     
     # Track tab visit
     if backend_available:
@@ -23,8 +34,7 @@ def tab_a_data_loading(backend_available):
     data_already_loaded = 'df' in st.session_state and st.session_state.df is not None
     
     # File upload section - always show, but with different messaging
-
-    st.subheader("📤 Upload Your File")
+    st.subheader("Upload Your File")
     upload_title = "Choose your data file"
     upload_help = "Upload your survey data or text file for clustering"
     upload_key = "data_file_uploader"
@@ -67,9 +77,9 @@ def tab_a_data_loading(backend_available):
             st.info(f"**Type:** {uploaded_file.type}")
     
     # Process file upload if provided
-    if uploaded_file is not None and file_changed==True:
+    if uploaded_file is not None and file_changed == True:
         if not backend_available:
-            st.error("❌ Backend services not available. Please check backend installation.")
+            st.error("Backend services not available. Please check backend installation.")
             return
         
         try:
@@ -85,7 +95,7 @@ def tab_a_data_loading(backend_available):
                 os.remove(temp_file_path)
             
             if not success:
-                st.error(f"❌ {message}")
+                st.error(f"{message}")
                 return
             
             # Store dataframe
@@ -99,14 +109,14 @@ def tab_a_data_loading(backend_available):
             st.session_state.tab_a_complete = False
             
             # Show success message and let Streamlit re-render naturally
-            st.success(f"✅ {message}")
+            st.success(f"{message}")
             st.balloons()
             
         except Exception as e:
-            st.error(f"❌ Error processing file: {str(e)}")
+            st.error(f"Error processing file: {str(e)}")
             
             # Provide helpful error guidance
-            with st.expander("🔧 Troubleshooting Help"):
+            with st.expander("Troubleshooting Help"):
                 st.markdown("""
                 **Common issues and solutions:**
                 
@@ -132,26 +142,23 @@ def tab_a_data_loading(backend_available):
     df = st.session_state.df
     
     # File Overview Section
-    st.subheader("📊 File Overview")
+    st.subheader("File Overview")
     
     # Show file metrics in columns
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
     with metric_col1:
-        st.metric("📄 Total Rows", len(df))
+        st.metric("Total Rows", len(df))
     with metric_col2:
-        st.metric("📋 Columns", len(df.columns))
+        st.metric("Columns", len(df.columns))
     with metric_col3:
         memory_usage = df.memory_usage(deep=True).sum() / 1024
-        st.metric("💾 Memory", f"{memory_usage:.1f} KB")
+        st.metric("Memory", f"{memory_usage:.1f} KB")
     with metric_col4:
         text_cols = len([col for col in df.columns if df[col].dtype == 'object'])
-        st.metric("📝 Text Columns", text_cols)
+        st.metric("Text Columns", text_cols)
     
-    
-    ######################################################################################
     # Data Overview Section
-    # Part 1: Data Preview    
-    with st.expander("👀 Data Preview", expanded=True):
+    with st.expander("Data Preview", expanded=True):
         st.markdown("**Your Loaded Data (first 300 rows):**")
         st.dataframe(
             df, 
@@ -159,7 +166,7 @@ def tab_a_data_loading(backend_available):
             hide_index=True
         )
 
-    # Part 2: Column Statistics
+        # Column Statistics
         st.markdown("**Column Statistics:**")
         # Create a dictionary to store column statistics
         col_stats = {}
@@ -175,95 +182,132 @@ def tab_a_data_loading(backend_available):
         # show the dataframe
         st.dataframe(stats_df, use_container_width=True)
     
-
-    ######################################################################################
-
     # Column Selection Section
-    st.subheader("⚙️ Column Selection")
+    st.subheader("Column Selection")
 
-    ######################################################################################
     # Respondent ID Column Selection
-    st.markdown("**🆔 Step 1: Choose an ID column (Optional)**")
+    st.markdown("**Step 1: Choose an ID column (Optional)**")
     auto_option = "Auto-generate IDs"
     id_options = [auto_option] + list(df.columns)
-    #setting up the default values for the id column
+    
+    # Setting up the default values for the id column
     if "respondent_id_column" not in st.session_state:
         st.session_state.respondent_id_column = auto_option 
+    
+    # Get safe index for ID column selection
+    id_column_index = get_safe_index(id_options, st.session_state.get('respondent_id_column'))
     
     selected_id = st.selectbox(
         label="Choose an ID column:",
         label_visibility="collapsed",
         options=id_options,
-        index=id_options.index(st.session_state.respondent_id_column),
+        index=id_column_index,
         help="Select a column to track individual responses",
         key="id_column_selector"
     )
     st.session_state.respondent_id_column = selected_id
     
-    # if selected_id is not None:
-    #     if selected_id == auto_option:
-    #         st.session_state.respondent_id_column = None
-    #         st.info("💡 Will create sequential IDs: ID_001, ID_002, etc.")
-    #     else:
-    #         st.session_state.respondent_id_column = selected_id
-    #         # Show preview of selected ID column
-    #         sample_ids = df[selected_id].head(5).tolist()
-    #         st.code(f"Sample IDs: {sample_ids}")
-    #     #id_index should be updated to reflect the index of the selected column
-    #     st.session_state.id_index = id_options.index(selected_id)
+    # Show sample IDs with improved formatting
+    if st.session_state.respondent_id_column and st.session_state.respondent_id_column != auto_option:
+        try:
+            sample_ids = df[st.session_state.respondent_id_column].head(10).tolist()
+            if sample_ids:
+                formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
+                st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
+        except (KeyError, AttributeError):
+            st.caption("Selected ID column not accessible")
     
+    # Show ID column preview and validation
+    if selected_id != auto_option:
+        id_column_data = df[selected_id]
+        
+        # Check if column is suitable for IDs
+        unique_count = id_column_data.nunique()
+        total_count = len(id_column_data.dropna())
+        
+        if unique_count == total_count:
+            st.success(f"ID column looks good: {unique_count} unique values")
+        else:
+            duplicates = total_count - unique_count
+            st.warning(f"ID column has {duplicates} duplicate values. Consider using auto-generate.")
+    else:
+        st.info("Will create sequential IDs: ID_001, ID_002, etc.")
+    
+    # Always generate clean IDs regardless of user choice
+    if 'clean_ids' not in st.session_state or st.session_state.clean_ids is None:
+        # Generate clean IDs for all rows
+        if selected_id != auto_option and selected_id in df.columns:
+            # Use existing column but clean it up
+            raw_ids = df[selected_id].fillna("").astype(str)
+            # Clean up the IDs - remove spaces, special chars, ensure uniqueness
+            clean_ids = []
+            seen_ids = set()
+            for i, raw_id in enumerate(raw_ids):
+                if raw_id.strip() and raw_id not in seen_ids:
+                    clean_id = re.sub(r'[^\w\-_]', '', raw_id.strip())[:20]  # Clean and limit length
+                    if clean_id:
+                        clean_ids.append(clean_id)
+                        seen_ids.add(raw_id)
+                    else:
+                        clean_ids.append(f"ID_{i+1:03d}")
+                else:
+                    clean_ids.append(f"ID_{i+1:03d}")
+        else:
+            # Auto-generate sequential IDs
+            clean_ids = [f"ID_{i+1:03d}" for i in range(len(df))]
+        
+        st.session_state.clean_ids = clean_ids
 
-    ######################################################################################
     # Text Column Section
-    st.markdown("**📝 Step 2: Choose a Text Column for Clustering**")
+    st.markdown("**Step 2: Choose a Text Column for Clustering**")
     text_options = list(df.columns)
-            #setting up the default values for the text column
+    
+    # Setting up the default values for the text column - FIXED SECTION
     if "text_column" not in st.session_state:
         st.session_state.text_column = None
-        st.session_state.text_index = None
-    else:
-        # Key exists, but value might be None or a column name
-        if st.session_state.text_column is None:
-            st.session_state.text_index = None
-        elif st.session_state.text_column in df.columns:
-            st.session_state.text_index = text_options.index(st.session_state.text_column)
-        else:
-            st.session_state.text_index = None  # Fallback if column doesn't exist in dataframe
-    # Get text column suggestions from backend
-    text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-    # st.success message to show the number of potential text columns
-    if text_columns:
-        st.success(f"💡 Detected {len(text_columns)} text columns usable for clustering")
-        #for col in text_columns[:3]:  # Show top 3
-        #    if not df[col].dropna().empty:
-        #        sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
-        #        st.caption(f"**{col}:** {sample_text}")
+    
+    # Get safe index for text column selection
+    text_column_index = get_safe_index(text_options, st.session_state.get('text_column'))
+    
+    # Get text column suggestions - with error handling
+    try:
+        text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+        if text_columns:
+            st.success(f"Detected {len(text_columns)} text columns usable for clustering")
+    except AttributeError:
+        # Fallback if method doesn't exist
+        text_columns = []
+        for col in df.columns:
+            if df[col].dtype == 'object':  # Text columns
+                sample_text = df[col].dropna()
+                if len(sample_text) > 0 and len(str(sample_text.iloc[0])) > 10:
+                    text_columns.append(col)
+        
+        if text_columns:
+            st.success(f"Detected {len(text_columns)} text columns usable for clustering")
     
     st.session_state.text_column = st.selectbox(
         label="Choose a text column:",
         label_visibility="collapsed",
         options=text_options,
-        index=st.session_state.text_index,
+        index=text_column_index,
         help="Choose the column with text you want to cluster",
         key="text_column_selector"
     )
     
-    # show 5 sample texts  with st.caption  
+    # Show 10 sample texts with improved formatting
     if st.session_state.text_column is not None:
-        # Show preview of selected text column
-        sample_texts = df[st.session_state.text_column].dropna().head(5).tolist()
-        if sample_texts:
-            samples = " | ".join([f"**Sample {i}:** {str(text)[:100] + '...' if len(str(text)) > 100 else str(text)}" for i, text in enumerate(sample_texts, 1)])
-            st.caption(f"**Sample texts:** {samples}")
-            """ preview code with line by line st.caption
-            for i, text in enumerate(sample_texts, 1):
-                truncated_text = str(text)[:200] + "..." if len(str(text)) > 200 else str(text)
-                st.caption(f"**Sample {i}:** {truncated_text}")
-            """
+        try:
+            sample_texts = df[st.session_state.text_column].dropna().head(10).tolist()
+            if sample_texts:
+                formatted_samples = ", ".join([f'"{str(text)[:100] + "..." if len(str(text)) > 100 else str(text)}"' for text in sample_texts])
+                st.caption(f"**Sample texts: {{{formatted_samples}}}**")
+        except (KeyError, AttributeError):
+            st.caption("Selected text column not accessible")
 
     # Validation and Quality Analysis
     if st.session_state.get('text_column'):
-        st.subheader("🔍 Data Quality Analysis")
+        st.subheader("Data Quality Analysis")
         
         with st.spinner("Analyzing data quality..."):
             validation_result = st.session_state.backend.validate_columns(
@@ -274,12 +318,12 @@ def tab_a_data_loading(backend_available):
             )
         
         if validation_result["text_column_valid"]:
-            st.success(f"✅ {validation_result['text_column_message']}")
+            st.success(f"{validation_result['text_column_message']}")
             
             # Show text quality metrics in an attractive layout
             stats = validation_result["text_quality"]
             
-            st.markdown("**📈 Text Quality Metrics**")
+            st.markdown("**Text Quality Metrics**")
             quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
             
             with quality_col1:
@@ -292,24 +336,23 @@ def tab_a_data_loading(backend_available):
                 st.metric(
                     "Avg Length", 
                     f"{stats['avg_length']:.0f} chars",
-                    delta=f"Range: {stats['min_length']}-{stats['max_length']}"
+                    delta=f"Sample size: {stats['sample_size']}"
                 )
             with quality_col3:
                 st.metric(
                     "Avg Words", 
                     f"{stats['avg_words']:.1f}",
-                    delta=f"Range: {stats['min_words']}-{stats['max_words']}"
+                    delta=f"Sample analysis"
                 )
             with quality_col4:
-                uniqueness = (stats['unique_texts'] / stats['total_texts']) * 100
                 st.metric(
-                    "Unique Texts", 
-                    stats['unique_texts'],
-                    delta=f"{uniqueness:.1f}% unique"
+                    "Short Texts", 
+                    stats['short_texts'],
+                    delta=f"<10 chars"
                 )
             
             # Sample texts in a nice format
-            with st.expander("📖 Sample Texts Analysis", expanded=False):
+            with st.expander("Sample Texts Analysis", expanded=False):
                 st.markdown("**Representative samples from your text data:**")
                 sample_texts = df[st.session_state.text_column].dropna().head(5)
                 
@@ -327,19 +370,19 @@ def tab_a_data_loading(backend_available):
                             st.markdown(f"*{display_text}*")
                         
                         with col_stats:
-                            st.caption(f"📝 {word_count} words")
-                            st.caption(f"🔤 {char_count} chars")
+                            st.caption(f"Words: {word_count}")
+                            st.caption(f"Chars: {char_count}")
                         
                         st.markdown("---")
             
             # ID column analysis
             id_analysis = validation_result["id_column_analysis"]
             
-            st.markdown("**🆔 ID Column Analysis**")
+            st.markdown("**ID Column Analysis**")
             if id_analysis["status"] == "perfect":
-                st.success(f"✅ {id_analysis['message']}")
+                st.success(f"{id_analysis['message']}")
             elif id_analysis["status"] in ["duplicates", "missing"]:
-                st.warning(f"⚠️ {id_analysis['message']}")
+                st.warning(f"{id_analysis['message']}")
                 
                 # Show detailed ID analysis
                 id_detail_col1, id_detail_col2, id_detail_col3 = st.columns(3)
@@ -353,30 +396,30 @@ def tab_a_data_loading(backend_available):
                     elif 'missing' in id_analysis:
                         st.metric("Missing", id_analysis['missing'])
             else:
-                st.info(f"ℹ️ {id_analysis['message']}")
+                st.info(f"{id_analysis['message']}")
             
             # Ready to proceed section
             st.markdown("---")
-            st.subheader("🚀 Ready to Proceed")
+            st.subheader("Ready to Proceed")
             
             # Summary display with better styling
             summary_col1, summary_col2, summary_col3 = st.columns(3)
             
             with summary_col1:
-                st.markdown("**📊 Data Summary:**")
+                st.markdown("**Data Summary:**")
                 st.write(f"• **Total rows:** {len(df):,}")
                 st.write(f"• **Valid texts:** {stats['total_texts'] - stats['empty_texts']:,}")
                 st.write(f"• **Data quality:** {'Excellent' if stats['avg_length'] > 50 else 'Good' if stats['avg_length'] > 20 else 'Fair'}")
             
             with summary_col2:
-                st.markdown("**📝 Text Configuration:**")
+                st.markdown("**Text Configuration:**")
                 st.write(f"• **Column:** {st.session_state.text_column}")
                 st.write(f"• **Avg length:** {stats['avg_length']:.0f} characters")
                 st.write(f"• **Avg words:** {stats['avg_words']:.1f} words")
             
             with summary_col3:
-                st.markdown("**🆔 ID Configuration:**")
-                if st.session_state.respondent_id_column:
+                st.markdown("**ID Configuration:**")
+                if st.session_state.respondent_id_column and st.session_state.respondent_id_column != "Auto-generate IDs":
                     st.write(f"• **Column:** {st.session_state.respondent_id_column}")
                     st.write(f"• **Status:** {id_analysis['status'].title()}")
                     st.write(f"• **Unique:** {id_analysis['unique']:,} IDs")
@@ -385,33 +428,46 @@ def tab_a_data_loading(backend_available):
                     st.write("• **Format:** ID_001, ID_002...")
                     st.write("• **Count:** Sequential numbering")
             
-            # Large, prominent proceed button
+            # Auto-completion with celebration message
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.session_state.tab_a_complete==False:  #if tab_a_complete is not True, then run the code below
+            
+            # Check if step should auto-complete
+            if not st.session_state.get('tab_a_complete', False):
+                # Auto-complete when validation passes
                 st.session_state.tab_a_complete = True
-                                    # Track completion
+                
+                # Track completion
                 if backend_available:
                     st.session_state.backend.track_activity(st.session_state.session_id, "data_upload", {
-                        "filename": "loaded_data",  # Generic name since we don't have original filename
+                        "filename": "loaded_data",
                         "rows": len(df),
                         "columns": len(df.columns),
                         "text_column": st.session_state.text_column,
                         "id_column": st.session_state.respondent_id_column,
                         "text_quality": stats
                     })
+                
                 st.balloons()
-                st.rerun()
+                # Show completion message
+                st.success("🎉 Data Loading Complete!")
+                st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
+                
+            else:
+                # Already completed - just show status
+                st.success("✅ Data Loading Complete")
+                st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
+            
             # Additional tips
             st.markdown("---")
-            with st.expander("💡 Tips for Better Results", expanded=False):
+            with st.expander("Tips for Better Results", expanded=False):
                 st.markdown("""
                 **For optimal clustering results:**
                 
-                - ✅ **Text length:** Texts with 20+ words work best
-                - ✅ **Data quality:** Remove or fix obviously corrupted entries
-                - ✅ **Language:** Ensure all texts are in the same language
-                - ✅ **Relevance:** All texts should be about similar topics
-                - ✅ **Volume:** 50+ texts recommended for meaningful clusters
+                - Text length: Texts with 20+ words work best
+                - Data quality: Remove or fix obviously corrupted entries
+                - Language: Ensure all texts are in the same language
+                - Relevance: All texts should be about similar topics
+                - Volume: 50+ texts recommended for meaningful clusters
                 
                 **What happens next:**
                 1. **Preprocessing:** Clean and prepare your texts
@@ -420,19 +476,17 @@ def tab_a_data_loading(backend_available):
                 """)
         
         else:
-            st.error(f"❌ {validation_result['text_column_message']}")
+            st.error(f"{validation_result['text_column_message']}")
             # Provide helpful suggestions
-            st.markdown("**💡 Suggestions to fix this issue:**")
+            st.markdown("**Suggestions to fix this issue:**")
             st.markdown("""
             - Choose a different column that contains longer text
             - Ensure the column has meaningful sentences, not just single words
             - Check that the column isn't mostly empty or contains mostly numbers/codes
             - Look for columns with survey responses, comments, or descriptions
             """)
-            if st.session_state.tab_a_complete==True:
-                st.session_state.tab_a_complete=False
+            
+            # Reset completion if validation fails
+            if st.session_state.get('tab_a_complete', False):
+                st.session_state.tab_a_complete = False
                 st.rerun()
-
-            
-            
-    

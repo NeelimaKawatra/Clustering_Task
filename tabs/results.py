@@ -8,15 +8,32 @@ def tab_d_results(backend_available):
         st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "results"})
     
     st.header("📊 Clustering Results")
+
+    
+    
+   # Add this at the beginning of tab_d_results function, after the track_activity call:
+
+    # Check prerequisites first
+    if not st.session_state.get('tab_a_complete', False):
+        st.error("Please complete Data Loading first!")
+        st.info("Go to the Data Loading tab to load and configure your data.")
+        return
+    
+    if not st.session_state.get('tab_b_complete', False):
+        st.error("Please complete Preprocessing first!")
+        st.info("Go to the Preprocessing tab to process your text data.")
+        return
     
     # Check if clustering is complete
     if not st.session_state.get('clustering_results') or not st.session_state.clustering_results.get("success"):
-        st.info("💡 Complete clustering first to see results here.")
+        st.error("Please complete Clustering first!")
+        st.info("Go to the Clustering tab and run the clustering analysis to see results here.")
         return
     
     if not backend_available:
-        st.error("❌ Backend services not available. Please check backend installation.")
+        st.error("Backend services not available. Please check backend installation.")
         return
+    
     
     results = st.session_state.clustering_results
     stats = results["statistics"]

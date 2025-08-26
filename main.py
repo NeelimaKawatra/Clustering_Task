@@ -90,7 +90,7 @@ def initialize_app_with_progress():
 # ============================================================================
 
 def create_sidebar_navigation():
-    """Create clean sidebar with only navigation buttons"""
+    """Create clean sidebar with always-accessible navigation buttons"""
     
     with st.sidebar:
         # App branding
@@ -112,57 +112,54 @@ def create_sidebar_navigation():
         if 'current_page' not in st.session_state:
             st.session_state.current_page = "data_loading"
         
-        # Navigation buttons - stacked vertically
+        # Navigation buttons - all always accessible
         
         # 1. Data Loading - always available
-        if st.button("📁 Data Loading", 
+        completion_indicator = "✅" if data_complete else "⭕"
+        if st.button(f"{completion_indicator} Data Loading", 
                     type="primary" if st.session_state.current_page == "data_loading" else "secondary",
                     use_container_width=True,
                     key="nav_data_loading"):
             st.session_state.current_page = "data_loading"
             st.rerun()
         
-        # 2. Preprocessing - available after data loading
-        if data_complete:
-            if st.button("🔧 Preprocessing", 
-                        type="primary" if st.session_state.current_page == "preprocessing" else "secondary",
-                        use_container_width=True,
-                        key="nav_preprocessing"):
-                st.session_state.current_page = "preprocessing"
-                st.rerun()
-        else:
-            st.button("🔒 Preprocessing", 
-                     disabled=True, 
-                     use_container_width=True,
-                     key="nav_preprocessing_locked")
+        # 2. Preprocessing - always accessible
+        completion_indicator = "✅" if preprocessing_complete else "⭕"
+        if st.button(f"{completion_indicator} Preprocessing", 
+                    type="primary" if st.session_state.current_page == "preprocessing" else "secondary",
+                    use_container_width=True,
+                    key="nav_preprocessing"):
+            st.session_state.current_page = "preprocessing"
+            st.rerun()
         
-        # 3. Clustering - available after preprocessing
-        if preprocessing_complete:
-            if st.button("⚙️ Clustering", 
-                        type="primary" if st.session_state.current_page == "clustering" else "secondary",
-                        use_container_width=True,
-                        key="nav_clustering"):
-                st.session_state.current_page = "clustering"
-                st.rerun()
-        else:
-            st.button("🔒 Clustering", 
-                     disabled=True, 
-                     use_container_width=True,
-                     key="nav_clustering_locked")
+        # 3. Clustering - always accessible
+        completion_indicator = "✅" if clustering_complete else "⭕"
+        if st.button(f"{completion_indicator} Clustering", 
+                    type="primary" if st.session_state.current_page == "clustering" else "secondary",
+                    use_container_width=True,
+                    key="nav_clustering"):
+            st.session_state.current_page = "clustering"
+            st.rerun()
         
-        # 4. Results - available after clustering
-        if clustering_complete:
-            if st.button("📊 Results", 
-                        type="primary" if st.session_state.current_page == "results" else "secondary",
-                        use_container_width=True,
-                        key="nav_results"):
-                st.session_state.current_page = "results"
-                st.rerun()
-        else:
-            st.button("🔒 Results", 
-                     disabled=True, 
-                     use_container_width=True,
-                     key="nav_results_locked")
+        # 4. Results - always accessible
+        completion_indicator = "✅" if clustering_complete else "⭕"
+        if st.button(f"{completion_indicator} Results", 
+                    type="primary" if st.session_state.current_page == "results" else "secondary",
+                    use_container_width=True,
+                    key="nav_results"):
+            st.session_state.current_page = "results"
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Progress indicator
+        progress_steps = [data_complete, preprocessing_complete, clustering_complete]
+        completed_steps = sum(progress_steps)
+        progress_percentage = completed_steps / len(progress_steps)
+        
+        st.markdown("**Progress:**")
+        st.progress(progress_percentage)
+        st.caption(f"{completed_steps}/{len(progress_steps)} steps completed")
         
         st.markdown("---")
         
@@ -173,7 +170,8 @@ def create_sidebar_navigation():
                     key="reset_analysis"):
             reset_analysis()
             st.rerun()
-            
+
+
 def show_session_analytics():
     """Show session analytics in sidebar"""
     if st.session_state.get('backend'):
@@ -205,8 +203,13 @@ def render_main_content():
     
     # Show backend status warning if needed
     if not st.session_state.get('BACKEND_AVAILABLE', False):
-        st.error("❌ **Backend not available!** Please ensure backend.py is in your project directory.")
+        st.error("Backend not available! Please ensure backend.py is in your project directory.")
         st.stop()
+    
+    # Auto-detect changes and handle cascading
+    from utils.session_state import detect_changes_and_cascade, check_automatic_completion
+    detect_changes_and_cascade()
+    check_automatic_completion()
     
     # Get tab functions from session state or import them
     if 'tab_functions' in st.session_state:
@@ -227,30 +230,30 @@ def render_main_content():
     
     # Render appropriate page content
     if current_page == "data_loading":
-        st.markdown("# 📁 Data Loading")
+        st.markdown("# Data Loading")
         st.markdown("Upload and configure your data for clustering analysis.")
         st.markdown("---")
         tab_functions['data_loading'](st.session_state.get('BACKEND_AVAILABLE', False))
         
     elif current_page == "preprocessing":
-        st.markdown("# 🔧 Text Preprocessing")
+        st.markdown("# Text Preprocessing")
         st.markdown("Clean and prepare your text data for optimal clustering results.")
         st.markdown("---")
         tab_functions['preprocessing'](st.session_state.get('BACKEND_AVAILABLE', False))
         
     elif current_page == "clustering":
-        st.markdown("# ⚙️ Clustering Configuration")
+        st.markdown("# Clustering Configuration")
         st.markdown("Configure parameters and run the clustering algorithm.")
         st.markdown("---")
         tab_functions['clustering'](st.session_state.get('BACKEND_AVAILABLE', False))
         
     elif current_page == "results":
-        st.markdown("# 📊 Clustering Results")
+        st.markdown("# Clustering Results")
         st.markdown("Explore your clustering results and export findings.")
         st.markdown("---")
         tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
 
-
+        
 # ============================================================================
 # MAIN APPLICATION
 # ============================================================================
