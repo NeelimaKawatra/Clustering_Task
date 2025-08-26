@@ -206,8 +206,8 @@ def tab_a_data_loading(backend_available):
         key="id_column_selector"
     )
     st.session_state.respondent_id_column = selected_id
-    
-    # Show sample IDs with improved formatting
+
+    # Show sample IDs with improved formatting and safety checks (ACTIVE VERSION)
     if st.session_state.respondent_id_column and st.session_state.respondent_id_column != auto_option:
         try:
             sample_ids = df[st.session_state.respondent_id_column].head(10).tolist()
@@ -216,6 +216,17 @@ def tab_a_data_loading(backend_available):
                 st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
         except (KeyError, AttributeError):
             st.caption("Selected ID column not accessible")
+
+    # COMMENTED VERSION: Original remote approach (unsafe - can crash on "Auto-generate IDs")
+    """
+    # Original version from remote (COMMENTED OUT - would crash on auto-generate)
+    # show 10 sample ids with st.caption
+    if st.session_state.respondent_id_column is not None:
+        sample_ids = df[st.session_state.respondent_id_column].head(10).tolist()
+        if sample_ids:
+            formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
+            st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
+    """
     
     # Show ID column preview and validation
     if selected_id != auto_option:
@@ -258,18 +269,34 @@ def tab_a_data_loading(backend_available):
         
         st.session_state.clean_ids = clean_ids
 
+    # COMMENTED VERSION: Legacy code from remote (old approach)
+    """ 
+    # Legacy code from remote (COMMENTED OUT - old approach)
+    # if selected_id is not None:
+    #     if selected_id == auto_option:
+    #         st.session_state.respondent_id_column = None
+    #         st.info("💡 Will create sequential IDs: ID_001, ID_002, etc.")
+    #     else:
+    #         st.session_state.respondent_id_column = selected_id
+    #         # Show preview of selected ID column
+    #         sample_ids = df[selected_id].head(5).tolist()
+    #         st.code(f"Sample IDs: {sample_ids}")
+    #     #id_index should be updated to reflect the index of the selected column
+    #     st.session_state.id_index = id_options.index(selected_id)
+    """    
+
     # Text Column Section
     st.markdown("**Step 2: Choose a Text Column for Clustering**")
     text_options = list(df.columns)
     
-    # Setting up the default values for the text column - FIXED SECTION
+    # Setting up the default values for the text column (ACTIVE VERSION)
     if "text_column" not in st.session_state:
         st.session_state.text_column = None
     
     # Get safe index for text column selection
     text_column_index = get_safe_index(text_options, st.session_state.get('text_column'))
     
-    # Get text column suggestions - with error handling
+    # Get text column suggestions with error handling (ACTIVE VERSION)
     try:
         text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
         if text_columns:
@@ -285,6 +312,30 @@ def tab_a_data_loading(backend_available):
         
         if text_columns:
             st.success(f"Detected {len(text_columns)} text columns usable for clustering")
+
+    # COMMENTED VERSION: Original remote approach for text column setup
+    """
+    # Original remote version approach (COMMENTED OUT - less robust)
+    else:
+        # Key exists, but value might be None or a column name
+        if st.session_state.text_column is None:
+            st.session_state.text_index = None
+        elif st.session_state.text_column in df.columns:
+            st.session_state.text_index = text_options.index(st.session_state.text_column)
+        else:
+            st.session_state.text_index = None  # Fallback if column doesn't exist in dataframe
+    
+    # Get text column suggestions from backend
+    text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+
+    # st.success message to show the number of potential text columns
+    if text_columns:
+        st.success(f"💡 Detected {len(text_columns)} text columns usable for clustering")
+        #for col in text_columns[:3]:  # Show top 3
+        #    if not df[col].dropna().empty:
+        #        sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
+        #        st.caption(f"**{col}:** {sample_text}")
+    """
     
     st.session_state.text_column = st.selectbox(
         label="Choose a text column:",
@@ -295,7 +346,7 @@ def tab_a_data_loading(backend_available):
         key="text_column_selector"
     )
     
-    # Show 10 sample texts with improved formatting
+    # Show 10 sample texts with improved formatting and safety (ACTIVE VERSION)
     if st.session_state.text_column is not None:
         try:
             sample_texts = df[st.session_state.text_column].dropna().head(10).tolist()
@@ -304,6 +355,17 @@ def tab_a_data_loading(backend_available):
                 st.caption(f"**Sample texts: {{{formatted_samples}}}**")
         except (KeyError, AttributeError):
             st.caption("Selected text column not accessible")
+
+    # COMMENTED VERSION: Original remote approach (unsafe - no error handling)
+    """
+    # Original version from remote (COMMENTED OUT - no error handling)
+    # show 10 sample texts with st.caption  
+    if st.session_state.text_column is not None:
+        sample_texts = df[st.session_state.text_column].dropna().head(10).tolist()
+        if sample_texts:
+            formatted_samples = ", ".join([f'"{str(text)}"' for text in sample_texts])
+            st.caption(f"**Sample texts : {{{formatted_samples}}}**")
+    """
 
     # Validation and Quality Analysis
     if st.session_state.get('text_column'):
@@ -346,9 +408,9 @@ def tab_a_data_loading(backend_available):
                 )
             with quality_col4:
                 st.metric(
-                    "Short Texts", 
-                    stats['short_texts'],
-                    delta=f"<10 chars"
+                    "Unique Texts", 
+                    stats['unique_texts'],
+                    delta=f"No duplicates/NA"
                 )
             
             # Sample texts in a nice format
@@ -449,12 +511,12 @@ def tab_a_data_loading(backend_available):
                 
                 st.balloons()
                 # Show completion message
-                st.success("🎉 Data Loading Complete!")
+                st.success("Data Loading Complete!")
                 st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
                 
             else:
                 # Already completed - just show status
-                st.success("✅ Data Loading Complete")
+                st.success("Data Loading Complete")
                 st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
             
             # Additional tips
