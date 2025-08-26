@@ -205,13 +205,12 @@ def tab_b_preprocessing(backend_available):
                 })
                 
                 st.balloons()
-                st.success("Text Preprocessing Complete!")
-                st.info("Your texts are cleaned and ready! Navigate to the **Clustering** tab to discover patterns and group similar texts together.")
+                st.success("Preprocessing Complete!")
+                st.info("Proceed to Clustering →")
             else:
                 # Already completed - show status
-                st.success("Text Preprocessing Complete")
-                st.info("Your texts are processed and ready for clustering. Head to the **Clustering** tab to continue.")
-                
+                st.success("Preprocessing Complete!")
+                st.info("Proceed to Clustering →")
             # Option to reprocess
             if st.button("Reprocess with Different Settings", 
                         help="Change preprocessing method"):
