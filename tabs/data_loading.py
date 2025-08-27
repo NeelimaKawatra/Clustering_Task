@@ -41,7 +41,7 @@ def tab_a_data_loading(backend_available):
     
     # Show message if file uploader was recently reset
     if 'file_uploader_reset' in st.session_state and st.session_state.file_uploader_reset:
-        st.info("📁 File uploader cleared. Please upload a new file to start analysis.")
+        st.info("📁 File cleared. Please upload a new file to restart the analysis.")
         # Clear the reset flag
         st.session_state.file_uploader_reset = False
     
