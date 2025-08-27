@@ -90,6 +90,13 @@ def initialize_session_state(backend_available=True):
         except Exception as e:
             st.error(f"Backend initialization failed: {e}")
             st.session_state.backend = None
+    
+    # File uploader management
+    if 'file_uploader_key' not in st.session_state:
+        st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
+    
+    if 'file_uploader_reset' not in st.session_state:
+        st.session_state.file_uploader_reset = False
 
 def reset_analysis():
     """Reset all analysis data while preserving navigation state"""
@@ -123,6 +130,12 @@ def reset_analysis():
     
     # Reset to first page
     st.session_state.current_page = "data_loading"
+    
+    # Generate new file uploader key to force file uploader to clear
+    st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
+    
+    # Set flag to show reset message
+    st.session_state.file_uploader_reset = True
 
 def cascade_from_data_loading():
     """Reset downstream steps when data changes"""
@@ -257,3 +270,28 @@ def check_automatic_completion():
         st.session_state.clustering_results.get('success', False)):
         
         st.session_state.tab_c_complete = True
+
+def clear_file_uploader():
+    """Clear file uploader state by generating a new key"""
+    st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
+    st.session_state.file_uploader_reset = True
+
+def reset_file_state():
+    """Reset only file-related state variables"""
+    file_keys = ['df', 'clean_ids', 'previous_file_key', 'file_uploader_key']
+    
+    for key in file_keys:
+        if key in st.session_state:
+            if key == 'clean_ids':
+                st.session_state[key] = []
+            elif key == 'file_uploader_key':
+                st.session_state[key] = f"uploader_{int(time.time())}"
+            else:
+                st.session_state[key] = None
+    
+    # Reset tab completion since file data is cleared
+    if 'tab_a_complete' in st.session_state:
+        st.session_state.tab_a_complete = False
+    
+    # Set flag to show reset message
+    st.session_state.file_uploader_reset = True

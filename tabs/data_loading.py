@@ -37,7 +37,13 @@ def tab_a_data_loading(backend_available):
     st.subheader("Upload Your File")
     upload_title = "Choose your data file"
     upload_help = "Upload your survey data or text file for clustering"
-    upload_key = "data_file_uploader"
+    upload_key = st.session_state.get('file_uploader_key', 'data_file_uploader')
+    
+    # Show message if file uploader was recently reset
+    if 'file_uploader_reset' in st.session_state and st.session_state.file_uploader_reset:
+        st.info("📁 File uploader cleared. Please upload a new file to start analysis.")
+        # Clear the reset flag
+        st.session_state.file_uploader_reset = False
     
     # Create columns for better layout
     col1, col2 = st.columns([2, 1])
