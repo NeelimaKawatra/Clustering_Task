@@ -589,32 +589,31 @@ class ClusteryBackend:
         return validation_result
 
     def _analyze_id_column(self, series: pd.Series) -> Dict[str, Any]:
-        """Simple ID column analysis - only check if numeric"""
+        """Simple ID column analysis - check if numeric"""
         
         total_count = len(series)
         non_null_series = series.dropna()
         
         if len(non_null_series) == 0:
             return {
-                "status": "invalid",
+                "status": "empty",
                 "message": "Column is empty",
                 "total": total_count,
                 "unique": 0
             }
         
         # Check if column is numeric
-        try:
-            pd.to_numeric(non_null_series.head(10), errors='raise')
+        if pd.api.types.is_numeric_dtype(series):
             return {
-                "status": "perfect",
+                "status": "numeric",
                 "message": "Good numeric ID column",
                 "total": total_count,
                 "unique": len(non_null_series.unique())
             }
-        except:
+        else:
             return {
-                "status": "text_column", 
-                "message": "Selected column contains text. We need numbers to proceed.",
+                "status": "non_numeric", 
+                "message": "Non-numeric column selected",
                 "total": total_count,
                 "unique": len(non_null_series.unique())
             }

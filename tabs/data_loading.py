@@ -203,14 +203,16 @@ def tab_a_data_loading(backend_available):
         options=id_options,
         index=id_column_index,
         help="Select a column to track individual responses",
-        key="id_column_selector"
-    )
+        key="id_selector"  # Changed from "respondent_id_column"
+)
     st.session_state.respondent_id_column = selected_id
 
+# Removed the manual assignment line
+
     # Show sample IDs with improved formatting and safety checks (ACTIVE VERSION)
-    if st.session_state.respondent_id_column and st.session_state.respondent_id_column != auto_option:
+    if selected_id and selected_id != auto_option:
         try:
-            sample_ids = df[st.session_state.respondent_id_column].head(10).tolist()
+            sample_ids = df[selected_id].head(10).tolist()
             if sample_ids:
                 formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
                 st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
@@ -229,20 +231,23 @@ def tab_a_data_loading(backend_available):
     """
     
     # Show ID column preview and validation
-    if selected_id != auto_option:
-        id_column_data = df[selected_id]
-        
-        # Check if column is suitable for IDs
-        unique_count = id_column_data.nunique()
-        total_count = len(id_column_data.dropna())
-        
-        if unique_count == total_count:
-            st.success(f"ID column looks good: {unique_count} unique values")
+    
+    if selected_id and selected_id != auto_option:
+        try:
+            id_column_data = df[selected_id]
+            
+            # Check if column is numeric
+            if pd.api.types.is_numeric_dtype(id_column_data):
+                st.success(f"✓ Numeric ID column selected: {selected_id}")
+            else:
+                st.warning(f"⚠ Non-numeric column selected. ID columns work best with numbers.")
+                
+        except (KeyError, TypeError):
+            st.error(f"Column '{selected_id}' not found in data")
+            return
         else:
-            duplicates = total_count - unique_count
-            st.warning(f"ID column has {duplicates} duplicate values. Consider using auto-generate.")
-    else:
-        st.info("Will create sequential IDs: ID_001, ID_002, etc.")
+            st.info("Will create sequential IDs: ID_001, ID_002, etc.")
+            
     
     # Always generate clean IDs regardless of user choice
     if 'clean_ids' not in st.session_state or st.session_state.clean_ids is None:
@@ -300,18 +305,16 @@ def tab_a_data_loading(backend_available):
     try:
         text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
         if text_columns:
-            st.success(f"Detected {len(text_columns)} text columns usable for clustering")
+            st.success(f"✓ Detected {len(text_columns)} text columns suitable for clustering")
+        else:
+            st.warning("⚠ No obvious text columns detected. Please verify your selection.")
     except AttributeError:
-        # Fallback if method doesn't exist
-        text_columns = []
-        for col in df.columns:
-            if df[col].dtype == 'object':  # Text columns
-                sample_text = df[col].dropna()
-                if len(sample_text) > 0 and len(str(sample_text.iloc[0])) > 10:
-                    text_columns.append(col)
-        
-        if text_columns:
-            st.success(f"Detected {len(text_columns)} text columns usable for clustering")
+        # Simple fallback - check if column is text type
+        if selected_text_column and selected_text_column in df.columns:
+            if pd.api.types.is_object_dtype(df[selected_text_column]):
+                st.success("✓ Text column type detected")
+            else:
+                st.warning("⚠ Selected column may not contain text data")
 
     # COMMENTED VERSION: Original remote approach for text column setup
     """
@@ -337,19 +340,20 @@ def tab_a_data_loading(backend_available):
         #        st.caption(f"**{col}:** {sample_text}")
     """
     
-    st.session_state.text_column = st.selectbox(
+    selected_text_column = st.selectbox(
         label="Choose a text column:",
         label_visibility="collapsed",
         options=text_options,
         index=text_column_index,
         help="Choose the column with text you want to cluster",
-        key="text_column_selector"
-    )
+        key="text_selector"  # Changed from "text_column"
+)
+    st.session_state.text_column = selected_text_column
     
     # Show 10 sample texts with improved formatting and safety (ACTIVE VERSION)
-    if st.session_state.text_column is not None:
+    if selected_text_column is not None:
         try:
-            sample_texts = df[st.session_state.text_column].dropna().head(10).tolist()
+            sample_texts = df[selected_text_column].dropna().head(10).tolist()
             if sample_texts:
                 formatted_samples = ", ".join([f'"{str(text)[:100] + "..." if len(str(text)) > 100 else str(text)}"' for text in sample_texts])
                 st.caption(f"**Sample texts: {{{formatted_samples}}}**")
@@ -368,15 +372,15 @@ def tab_a_data_loading(backend_available):
     """
 
     # Validation and Quality Analysis
-    if st.session_state.get('text_column'):
+    if selected_text_column and selected_text_column in df.columns:
         st.subheader("Data Quality Analysis")
         
         with st.spinner("Analyzing data quality..."):
             validation_result = st.session_state.backend.validate_columns(
                 df, 
-                st.session_state.text_column, 
-                st.session_state.respondent_id_column, 
-                st.session_state.session_id
+                selected_text_column, 
+        selected_id, 
+        st.session_state.session_id
             )
         
         if validation_result["text_column_valid"]:
@@ -416,7 +420,7 @@ def tab_a_data_loading(backend_available):
             # Sample texts in a nice format
             with st.expander("Sample Texts Analysis", expanded=False):
                 st.markdown("**Representative samples from your text data:**")
-                sample_texts = df[st.session_state.text_column].dropna().head(5)
+                sample_texts = df[selected_text_column].dropna().head(5)
                 
                 for i, text in enumerate(sample_texts, 1):
                     text_str = str(text)
@@ -504,8 +508,8 @@ def tab_a_data_loading(backend_available):
                         "filename": "loaded_data",
                         "rows": len(df),
                         "columns": len(df.columns),
-                        "text_column": st.session_state.text_column,
-                        "id_column": st.session_state.respondent_id_column,
+                        "text_column":st.write(f"• **Column:** {selected_text_column}"),
+                        "id_column": st.write(f"• **Column:** {selected_id}"),
                         "text_quality": stats
                     })
                 
