@@ -190,7 +190,7 @@ class FastTextProcessor:
             "avg_words": avg_words,
             "empty_texts": empty_count,
             "short_texts": short_count,
-            "unique_texts": len(unique_texts),  # Add unique texts count
+            "unique_texts": len(unique_texts),
             "sample_size": sample_size
         }
     
@@ -266,10 +266,12 @@ class ClusteringConfig:
     def __init__(self):
         self.default_params = {
             "min_topic_size": 5,
+            "min_samples": 3,
             "n_neighbors": 15,
             "n_components": 5,
             "metric": "cosine",
-            "random_state": 42
+            "random_state": 42,
+            "embedding_model": "all-MiniLM-L6-v2"
         }
     
     def get_optimal_parameters(self, text_count: int) -> Dict[str, Any]:
@@ -280,12 +282,16 @@ class ClusteringConfig:
         # Adjust min_topic_size based on dataset size
         if text_count < 50:
             params["min_topic_size"] = 3
+            params["min_samples"] = 2
         elif text_count < 100:
             params["min_topic_size"] = 5
+            params["min_samples"] = 3
         elif text_count < 200:
             params["min_topic_size"] = 8
+            params["min_samples"] = 4
         else:
             params["min_topic_size"] = 10
+            params["min_samples"] = 5
         
         # Adjust n_neighbors based on dataset size
         if text_count < 50:
@@ -339,7 +345,6 @@ class OptimizedClusteringModel:
             from sklearn.feature_extraction.text import TfidfVectorizer
             from sklearn.cluster import KMeans
             from sklearn.decomposition import TruncatedSVD
-            from sklearn.pipeline import Pipeline
             
             # Setup vectorizer
             self.vectorizer = TfidfVectorizer(
@@ -618,124 +623,110 @@ class ClusteryBackend:
                 "unique": len(non_null_series.unique())
             }
     
+    def get_text_column_suggestions(self, df: pd.DataFrame, session_id: str) -> List[str]:
+        """Fast text column detection"""
+        text_columns = []
+        
+        for col in df.columns:
+            is_valid, _ = self.text_processor.validate_text_column(df[col])
+            if is_valid:
+                text_columns.append(col)
+        
+        self.logger.log_activity("text_column_suggestions", session_id, {
+            "suggested_columns": text_columns,
+            "total_columns": len(df.columns)
+        })
+        
+        return text_columns
+    
     # ========================================================================
     # TEXT PREPROCESSING (Fast)
     # ========================================================================
     
     def preprocess_texts(self, texts: List[str], method: str, 
-                        custom_settings: Dict[str, Any], session_id: str) -> Tuple[List[str], Dict[str, Any]]:
-        """Fast text preprocessing with progress"""
+                    custom_settings: Dict[str, Any], session_id: str) -> Tuple[List[str], Dict[str, Any]]:
+        """Process texts with timing and proper metadata"""
         
         start_time = time.time()
         
-        # Log preprocessing start
-        self.logger.log_activity("preprocessing_started", session_id, {
-            "method": method,
-            "text_count": len(texts),
-            "custom_settings": custom_settings if method == "custom" else None
-        })
+        processed_texts = []
+        valid_row_indices = []
         
-        # Show progress for large datasets
-        if len(texts) > 100:
-            progress_bar = st.progress(0.0)
-            status_text = st.empty()
+        for i, text in enumerate(texts):
+            # Process text based on method
+            if method == "none":
+                processed_text = str(text) if text else ""
+            elif method == "basic":
+                processed_text = self.text_processor.basic_cleaning(text)
+            elif method == "advanced":
+                processed_text = self.text_processor.advanced_cleaning(text)
+            elif method == "custom":
+                processed_text = self.text_processor.advanced_cleaning(text, **custom_settings)
+            else:
+                processed_text = self.text_processor.basic_cleaning(text)  # fallback
             
-            status_text.text(f"Processing {len(texts)} texts...")
-            progress_bar.progress(0.2)
-        else:
-            progress_bar = None
-            status_text = None
-        
-        # Process texts based on method
-        if method == "none":
-            processed_texts = [str(text) if text else "" for text in texts]
-            details = "No preprocessing applied"
-            
-        elif method == "basic":
-            processed_texts = []
-            for i, text in enumerate(texts):
-                processed_texts.append(self.text_processor.basic_cleaning(text))
-                if progress_bar and i % 50 == 0:
-                    progress_bar.progress(0.2 + (i / len(texts)) * 0.6)
-            details = "Basic cleaning: URLs, emails, whitespace normalization"
-            
-        elif method == "advanced":
-            processed_texts = []
-            for i, text in enumerate(texts):
-                processed_texts.append(self.text_processor.advanced_cleaning(text))
-                if progress_bar and i % 50 == 0:
-                    progress_bar.progress(0.2 + (i / len(texts)) * 0.6)
-            details = "Advanced cleaning: URLs, emails, stopwords, punctuation, short words"
-            
-        elif method == "custom":
-            processed_texts = []
-            for i, text in enumerate(texts):
-                processed_texts.append(
-                    self.text_processor.advanced_cleaning(
-                        text,
-                        remove_stopwords=custom_settings.get('remove_stopwords', True),
-                        remove_punctuation=custom_settings.get('remove_punctuation', True),
-                        min_length=custom_settings.get('min_length', 2),
-                        remove_numbers=custom_settings.get('remove_numbers', True)
-                    )
-                )
-                if progress_bar and i % 50 == 0:
-                    progress_bar.progress(0.2 + (i / len(texts)) * 0.6)
-            details = f"Custom: {custom_settings}"
-            
-        else:
-            raise ValueError(f"Unknown preprocessing method: {method}")
-        
-        if progress_bar:
-            progress_bar.progress(0.8)
-            status_text.text("Filtering and analyzing results...")
-        
-        # Filter out empty texts
-        original_count = len(processed_texts)
-        processed_texts = [text.strip() for text in processed_texts if text.strip() and len(text.strip()) > 2]
-        filtered_count = len(processed_texts)
-        
-        # Calculate statistics
-        original_stats = self.text_processor.analyze_text_quality(texts)
-        processed_stats = self.text_processor.analyze_text_quality(processed_texts)
-        
-        processing_time = time.time() - start_time
-        
-        if progress_bar:
-            progress_bar.progress(1.0)
-            status_text.text("Preprocessing complete!")
-            time.sleep(0.5)
-            progress_bar.empty()
-            status_text.empty()
+            # Only keep valid texts for clustering
+            if processed_text and processed_text.strip() and len(processed_text.strip()) > 2:
+                processed_texts.append(processed_text.strip())
+                valid_row_indices.append(i)
         
         # Create metadata
         metadata = {
             "method": method,
-            "details": details,
-            "custom_settings": custom_settings if method == "custom" else None,
-            "original_count": original_count,
-            "filtered_count": filtered_count,
-            "texts_removed": original_count - filtered_count,
-            "original_stats": original_stats,
-            "processed_stats": processed_stats,
-            "processing_time": processing_time
+            "details": f"{method} preprocessing",
+            "original_count": len(texts),
+            "filtered_count": len(processed_texts),
+            "texts_removed": len(texts) - len(processed_texts),
+            "valid_row_indices": valid_row_indices,
+            "processing_time": time.time() - start_time,
+            "original_stats": self.text_processor.analyze_text_quality(texts),
+            "processed_stats": self.text_processor.analyze_text_quality(processed_texts)
         }
         
-        # Log completion
-        self.logger.log_performance("text_preprocessing", session_id, processing_time, {
-            "method": method,
-            "texts_processed": filtered_count,
-            "texts_removed": original_count - filtered_count
+        return processed_texts, metadata
+    
+    def get_preprocessing_recommendations(self, texts: List[str], session_id: str) -> Dict[str, Any]:
+        """Fast preprocessing recommendations"""
+        
+        text_stats = self.text_processor.analyze_text_quality(texts)
+        
+        recommendations = {
+            "suggested_method": "basic",
+            "reasons": [],
+            "text_analysis": text_stats
+        }
+        
+        # Fast analysis for recommendations
+        avg_length = text_stats["avg_length"]
+        avg_words = text_stats["avg_words"]
+        
+        if avg_length > 200:
+            recommendations["suggested_method"] = "advanced"
+            recommendations["reasons"].append("Long texts benefit from stopword removal")
+        
+        if avg_words > 20:
+            recommendations["suggested_method"] = "advanced"
+            recommendations["reasons"].append("Many words suggest need for noise reduction")
+        
+        if text_stats["total_texts"] < 50:
+            recommendations["suggested_method"] = "basic"
+            recommendations["reasons"].append("Small dataset - preserve more content")
+        
+        # Log recommendations
+        self.logger.log_activity("preprocessing_recommendations", session_id, {
+            "suggested_method": recommendations["suggested_method"],
+            "reasons": recommendations["reasons"],
+            "text_stats": text_stats
         })
         
-        return processed_texts, metadata
+        return recommendations
     
     # ========================================================================
     # CLUSTERING (Lazy Loaded)
     # ========================================================================
     
     def get_clustering_parameters(self, text_count: int, session_id: str) -> Dict[str, Any]:
-        """Fast parameter calculation"""
+        """Get optimal parameters for clustering based on text count"""
         params = self.config.get_optimal_parameters(text_count)
         
         self.logger.log_activity("parameters_suggested", session_id, {
@@ -908,171 +899,162 @@ class ClusteryBackend:
     # ========================================================================
     
     def export_results(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame, 
-                      text_column: str, id_column: str = None, session_id: str = "", original_texts_col: List[str] = []) -> pd.DataFrame:
-        """Fast results export"""
+                      text_column: str, id_column: str = None, session_id: str = "") -> pd.DataFrame:
+        """Create properly aligned output table with simplified logic"""
         
+        if not clustering_results.get("success"):
+            raise ValueError("Cannot export unsuccessful clustering results")
+        
+        # Get clustering data
         topics = clustering_results["topics"]
-        probabilities = clustering_results["probabilities"]
-        texts = clustering_results["texts"]
-        topic_keywords = clustering_results["metadata"].get("topic_keywords", {})
+        probabilities = clustering_results["probabilities"] 
+        processed_texts = clustering_results["texts"]
         
-        # Use clean IDs if available, otherwise create them
-        if hasattr(st.session_state, 'clean_ids') and st.session_state.clean_ids:
-            ids = st.session_state.clean_ids[:len(texts)]
-        elif id_column and id_column != "Auto-generate IDs" and id_column in original_data.columns:
-            ids = original_data[id_column].astype(str).tolist()[:len(texts)]
-        else:
-            ids = [f"ID_{i+1:03d}" for i in range(len(texts))]
+        # Get alignment information from session state
+        row_alignment = st.session_state.get('row_alignment', list(range(len(processed_texts))))
+        original_texts = st.session_state.get('original_texts', [])
+        clean_ids = st.session_state.get('clean_ids', [])
+        user_selections = st.session_state.get('user_selections', {})
         
-        # Create cluster labels
-        cluster_labels = []
-        for topic in topics:
-            if topic == -1:
-                cluster_labels.append("outlier")
+        # Create output dataframe
+        output_data = []
+        
+        # Process each clustered text
+        for proc_idx, (topic, prob, proc_text) in enumerate(zip(topics, probabilities, processed_texts)):
+            # Get the original row this processed text came from
+            orig_row_idx = row_alignment[proc_idx] if proc_idx < len(row_alignment) else proc_idx
+            
+            # Build the row data
+            row_data = {}
+            
+            # Add auto-generated ID
+            if orig_row_idx < len(clean_ids):
+                row_data['auto_generated_id'] = clean_ids[orig_row_idx]
             else:
-                keywords = topic_keywords.get(topic, [f"cluster_{topic}"])
-                label = "_".join(keywords[:3]) if keywords else f"cluster_{topic}"
-                cluster_labels.append(label)
+                row_data['auto_generated_id'] = f"ID_{orig_row_idx+1:03d}"
+            
+            # Add user's original ID column if they selected one
+            if not user_selections.get('id_is_auto_generated', True):
+                user_id_col = user_selections.get('id_column_choice')
+                if user_id_col and user_id_col in original_data.columns:
+                    if orig_row_idx < len(original_data):
+                        row_data[f'user_id_{user_id_col}'] = str(original_data[user_id_col].iloc[orig_row_idx])
+                    else:
+                        row_data[f'user_id_{user_id_col}'] = "N/A"
+            
+            # Add original text
+            user_text_col = user_selections.get('text_column_choice', text_column)
+            if orig_row_idx < len(original_texts):
+                row_data[f'original_{user_text_col}'] = original_texts[orig_row_idx]
+            else:
+                row_data[f'original_{user_text_col}'] = "N/A"
+            
+            # Add processed text
+            row_data['processed_text'] = proc_text
+            
+            # Add clustering results
+            row_data['cluster_id'] = topic
+            row_data['confidence_score'] = prob
+            
+            # Add confidence level
+            if prob >= 0.7:
+                row_data['confidence_level'] = 'High'
+            elif prob >= 0.3:
+                row_data['confidence_level'] = 'Medium'
+            else:
+                row_data['confidence_level'] = 'Low'
+            
+            # Add cluster label if keywords available
+            topic_keywords = clustering_results.get("metadata", {}).get("topic_keywords", {})
+            if topic in topic_keywords and topic != -1:
+                keywords = topic_keywords[topic][:3]  # Top 3 keywords
+                row_data['cluster_label'] = "_".join(keywords)
+            else:
+                row_data['cluster_label'] = "outlier" if topic == -1 else f"cluster_{topic}"
+            
+            output_data.append(row_data)
         
-        # Get original texts for comparison
-        if original_texts_col and len(original_texts_col) >= len(texts):
-            original_texts = original_texts_col[:len(texts)]
-        else:
-            original_texts = original_data[text_column].fillna("").tolist()[:len(texts)]
+        # Add rows that were filtered out during preprocessing
+        # These will have clustering results as None/NaN
+        total_original_rows = len(original_data)
+        processed_row_indices = set(row_alignment[:len(processed_texts)])
         
-        # Create comprehensive dataframe
-        results_df = pd.DataFrame({
-            'respondent_id': ids,
-            'original_text': original_texts,
-            'processed_text': texts,
-            'cluster_id': topics,
-            'cluster_label': cluster_labels,
-            'confidence_score': probabilities,
-            'confidence_level': ['High' if p >= 0.7 else 'Medium' if p >= 0.3 else 'Low' for p in probabilities]
-        })
+        for orig_idx in range(total_original_rows):
+            if orig_idx not in processed_row_indices:
+                # This row was filtered out during preprocessing
+                row_data = {}
+                
+                # Add IDs
+                row_data['auto_generated_id'] = clean_ids[orig_idx] if orig_idx < len(clean_ids) else f"ID_{orig_idx+1:03d}"
+                
+                if not user_selections.get('id_is_auto_generated', True):
+                    user_id_col = user_selections.get('id_column_choice')
+                    if user_id_col and user_id_col in original_data.columns:
+                        row_data[f'user_id_{user_id_col}'] = str(original_data[user_id_col].iloc[orig_idx])
+                
+                # Add original text
+                user_text_col = user_selections.get('text_column_choice', text_column)
+                if orig_idx < len(original_texts):
+                    row_data[f'original_{user_text_col}'] = original_texts[orig_idx]
+                else:
+                    row_data[f'original_{user_text_col}'] = str(original_data[user_text_col].iloc[orig_idx])
+                
+                # Mark as filtered out
+                row_data['processed_text'] = "[FILTERED OUT - empty or too short]"
+                row_data['cluster_id'] = None
+                row_data['confidence_score'] = None
+                row_data['confidence_level'] = "Not Clustered"
+                row_data['cluster_label'] = "not_clustered"
+                
+                output_data.append(row_data)
         
-        # Add cluster keywords as separate column
-        results_df['cluster_keywords'] = results_df['cluster_id'].map(
-            lambda x: ", ".join(topic_keywords.get(x, [])) if x != -1 else "outlier"
-        )
+        # Sort by auto_generated_id to maintain original order
+        output_data.sort(key=lambda x: x['auto_generated_id'])
         
-        self.logger.log_activity("results_dataframe_created", session_id, {
-            "rows": len(results_df),
-            "columns": len(results_df.columns),
-            "clusters": len(set(topics)) - (1 if -1 in topics else 0)
+        results_df = pd.DataFrame(output_data)
+        
+        # Log export activity
+        self.logger.log_activity("export_results", session_id, {
+            "total_rows": len(results_df),
+            "clustered_rows": len([row for row in output_data if row['cluster_id'] is not None]),
+            "filtered_rows": len([row for row in output_data if row['cluster_id'] is None])
         })
         
         return results_df
     
-    def get_session_analytics(self, session_id: str) -> Dict[str, Any]:
-        """Fast session analytics"""
+    def create_summary_export(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame, 
+                         text_column: str, id_column: str = None, session_id: str = "") -> pd.DataFrame:
+        """Create summary export with only essential columns"""
         
-        if session_id not in self.session_data:
-            return {"error": "Session not found"}
+        # Get the detailed results first
+        detailed_df = self.export_results(clustering_results, original_data, text_column, id_column, session_id)
         
-        session = self.session_data[session_id]
-        current_time = datetime.now()
-        session_duration = (current_time - session["start_time"]).total_seconds()
+        # Get user selections to determine column names
+        user_selections = st.session_state.get('user_selections', {})
         
-        # Calculate completion status
-        completion_status = {
-            "data_loaded": session["data_loaded"],
-            "preprocessing_completed": session["preprocessing_completed"],
-            "clustering_completed": session["clustering_completed"],
-            "results_exported": session["results_exported"]
-        }
+        # Define the columns we want in summary
+        summary_columns = ['auto_generated_id']
         
-        completion_percentage = sum(completion_status.values()) / len(completion_status) * 100
+        # Add user ID column if it exists
+        user_id_cols = [col for col in detailed_df.columns if col.startswith('user_id_')]
+        if user_id_cols:
+            summary_columns.extend(user_id_cols)
         
-        # Activity summary
-        activity_counts = {}
-        for activity in session["activities"]:
-            activity_type = activity["type"]
-            activity_counts[activity_type] = activity_counts.get(activity_type, 0) + 1
+        # Add original text column
+        original_text_cols = [col for col in detailed_df.columns if col.startswith('original_')]
+        if original_text_cols:
+            summary_columns.extend(original_text_cols)
         
-        summary = {
-            "session_id": session_id,
-            "duration_seconds": session_duration,
-            "completion_percentage": completion_percentage,
-            "completion_status": completion_status,
-            "activity_counts": activity_counts,
-            "current_tab": session["current_tab"],
-            "total_activities": len(session["activities"]),
-            "user_info": session["user_info"]
-        }
+        # Add clustering results
+        clustering_columns = ['cluster_id', 'confidence_score', 'confidence_level', 'cluster_label']
+        summary_columns.extend(clustering_columns)
         
-        return summary
-    
-    # ========================================================================
-    # UTILITY METHODS (Fast)
-    # ========================================================================
-    
-    @property
-    def data_service(self):
-        """For compatibility"""
-        return self
-    
-    @property 
-    def preprocessing_service(self):
-        """For compatibility"""
-        return self
-    
-    @property
-    def export_service(self):
-        """For compatibility"""
-        return self
-    
-    def get_text_column_suggestions(self, df: pd.DataFrame, session_id: str) -> List[str]:
-        """Fast text column detection"""
-        text_columns = []
+        # Filter to only include columns that exist in the detailed dataframe
+        available_columns = [col for col in summary_columns if col in detailed_df.columns]
         
-        for col in df.columns:
-            is_valid, _ = self.text_processor.validate_text_column(df[col])
-            if is_valid:
-                text_columns.append(col)
+        summary_df = detailed_df[available_columns].copy()
         
-        self.logger.log_activity("text_column_suggestions", session_id, {
-            "suggested_columns": text_columns,
-            "total_columns": len(df.columns)
-        })
-        
-        return text_columns
-    
-    def get_preprocessing_recommendations(self, texts: List[str], session_id: str) -> Dict[str, Any]:
-        """Fast preprocessing recommendations"""
-        
-        text_stats = self.text_processor.analyze_text_quality(texts)
-        
-        recommendations = {
-            "suggested_method": "basic",
-            "reasons": [],
-            "text_analysis": text_stats
-        }
-        
-        # Fast analysis for recommendations
-        avg_length = text_stats["avg_length"]
-        avg_words = text_stats["avg_words"]
-        
-        if avg_length > 200:
-            recommendations["suggested_method"] = "advanced"
-            recommendations["reasons"].append("Long texts benefit from stopword removal")
-        
-        if avg_words > 20:
-            recommendations["suggested_method"] = "advanced"
-            recommendations["reasons"].append("Many words suggest need for noise reduction")
-        
-        if text_stats["total_texts"] < 50:
-            recommendations["suggested_method"] = "basic"
-            recommendations["reasons"].append("Small dataset - preserve more content")
-        
-        # Log recommendations
-        self.logger.log_activity("preprocessing_recommendations", session_id, {
-            "suggested_method": recommendations["suggested_method"],
-            "reasons": recommendations["reasons"],
-            "text_stats": text_stats
-        })
-        
-        return recommendations
+        return summary_df
     
     def create_summary_report(self, clustering_results: Dict[str, Any], 
                              preprocessing_info: Dict[str, Any], session_id: str = "") -> str:
@@ -1124,6 +1106,64 @@ PARAMETERS USED
         report += "\nGenerated by Clustery - Intelligent Text Clustering Tool\n"
         
         return report
+    
+    def get_session_analytics(self, session_id: str) -> Dict[str, Any]:
+        """Fast session analytics"""
+        
+        if session_id not in self.session_data:
+            return {"error": "Session not found"}
+        
+        session = self.session_data[session_id]
+        current_time = datetime.now()
+        session_duration = (current_time - session["start_time"]).total_seconds()
+        
+        # Calculate completion status
+        completion_status = {
+            "data_loaded": session["data_loaded"],
+            "preprocessing_completed": session["preprocessing_completed"],
+            "clustering_completed": session["clustering_completed"],
+            "results_exported": session["results_exported"]
+        }
+        
+        completion_percentage = sum(completion_status.values()) / len(completion_status) * 100
+        
+        # Activity summary
+        activity_counts = {}
+        for activity in session["activities"]:
+            activity_type = activity["type"]
+            activity_counts[activity_type] = activity_counts.get(activity_type, 0) + 1
+        
+        summary = {
+            "session_id": session_id,
+            "duration_seconds": session_duration,
+            "completion_percentage": completion_percentage,
+            "completion_status": completion_status,
+            "activity_counts": activity_counts,
+            "current_tab": session["current_tab"],
+            "total_activities": len(session["activities"]),
+            "user_info": session["user_info"]
+        }
+        
+        return summary
+
+    # ========================================================================
+    # UTILITY METHODS (Fast)
+    # ========================================================================
+    
+    @property
+    def data_service(self):
+        """For compatibility"""
+        return self
+    
+    @property 
+    def preprocessing_service(self):
+        """For compatibility"""
+        return self
+    
+    @property
+    def export_service(self):
+        """For compatibility"""
+        return self
 
 
 def health_check() -> bool:

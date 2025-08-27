@@ -1,15 +1,17 @@
+# tabs/preprocessing.py - Fixed version with simplified data alignment
 import streamlit as st
-from collections import Counter
 import pandas as pd
 
 def tab_b_preprocessing(backend_available):
-    """Tab B: Text Preprocessing with automatic completion and cascading"""
+    """Tab B: Simplified Text Preprocessing with clear data alignment"""
     
     # Track tab visit
     if backend_available:
-        st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "preprocessing"})
+        st.session_state.backend.track_activity(
+            st.session_state.session_id, "tab_visit", {"tab_name": "preprocessing"}
+        )
     
-    # Check prerequisites first
+    # Check prerequisites
     if not st.session_state.get('tab_a_complete', False):
         st.error("Please complete Data Loading first!")
         st.info("Go to the Data Loading tab to load and configure your data.")
@@ -25,41 +27,48 @@ def tab_b_preprocessing(backend_available):
     
     if df is None or text_column is None:
         st.error("No data found. Please complete Data Loading first.")
-        st.info("Go to the Data Loading tab to load and configure your data.")
         return
     
     st.subheader("Choose Preprocessing Level")
     
-    # Get preprocessing recommendations from backend
-    original_texts = df[text_column].dropna().tolist()
-    recommendations = st.session_state.backend.get_preprocessing_recommendations(
-        original_texts, st.session_state.session_id
-    )
+    # Get and store original texts consistently
+    original_texts = df[text_column].fillna("").astype(str).tolist()
+    st.session_state.original_texts = original_texts
+    
+    # Get recommendations
+    try:
+        recommendations = st.session_state.backend.get_preprocessing_recommendations(
+            original_texts, st.session_state.session_id
+        )
+    except Exception as e:
+        st.warning(f"Could not get recommendations: {e}")
+        recommendations = {'suggested_method': 'basic'}
 
-    # Expander to explain the different preprocessing options
-    with st.expander("Understanding what each option does"):
-        st.write("- No Preprocessing: use your original text")
-        st.write("- Basic Preprocessing: remove URLs, email addresses, normalize case and whitespace")
-        st.write("- Advanced Preprocessing: Basic Preprocessing + more powerful tokenization + remove stopwords, punctuation, numbers, short words, etc.")
-        st.write("- Custom Preprocessing: choose your own settings")
+    # Show current data status
+    st.info(f"Ready to process {len(original_texts)} texts from your data")
 
     # Preprocessing options
+    with st.expander("Understanding Preprocessing Options"):
+        st.write("- **No Preprocessing**: Use your text exactly as uploaded")
+        st.write("- **Basic Preprocessing**: Remove URLs, emails, normalize whitespace") 
+        st.write("- **Advanced Preprocessing**: Basic + remove stopwords, punctuation, numbers")
+        st.write("- **Custom Preprocessing**: Choose specific settings")
+
     preprocessing_option = st.radio(
-        label="",
-        options=[
-                "No Preprocessing",
-                "Basic Preprocessing",
-                "Advanced Preprocessing",
-                "Custom Preprocessing"
-            ],
-        index=1 if recommendations['suggested_method'] == 'basic' else 2
+        "Select preprocessing level:",
+        [
+            "No Preprocessing",
+            "Basic Preprocessing", 
+            "Advanced Preprocessing",
+            "Custom Preprocessing"
+        ],
+        index=1 if recommendations.get('suggested_method') == 'basic' else 2
     )
 
-    # Custom preprocessing options
+    # Custom settings
     custom_settings = {}
     if preprocessing_option == "Custom Preprocessing":
         st.subheader("Custom Settings")
-        
         col1, col2 = st.columns(2)
         with col1:
             custom_settings['remove_stopwords'] = st.checkbox("Remove stopwords", value=True)
@@ -67,164 +76,152 @@ def tab_b_preprocessing(backend_available):
         with col2:
             custom_settings['min_length'] = st.slider("Minimum word length", 1, 5, 2)
             custom_settings['remove_numbers'] = st.checkbox("Remove numbers", value=True)
-    
-    # Process text using backend
+
+    # Process button
     if st.button("Process Text", type="primary"):
         with st.spinner("Processing text..."):
             
-            # Map preprocessing option to backend method
+            # Map options to methods
             method_mapping = {
                 "No Preprocessing": "none",
-                "Basic Preprocessing": "basic",
+                "Basic Preprocessing": "basic", 
                 "Advanced Preprocessing": "advanced",
                 "Custom Preprocessing": "custom"
             }
             
             method = method_mapping[preprocessing_option]
             
-            # Use backend preprocessing service
-            processed_texts, metadata = st.session_state.backend.preprocess_texts(
-                original_texts, method, custom_settings, st.session_state.session_id
-            )
-            
-            # Store results - ensure original_texts matches processed_texts length
-            # Filter original texts to match what the backend kept
-            filtered_original_texts = []
-            processed_index = 0
-            
-            for original_text in original_texts:
-                # Apply same filtering logic as backend
-                if (original_text and str(original_text).strip() and 
-                    len(str(original_text).strip()) > 2 and 
-                    processed_index < len(processed_texts)):
-                    filtered_original_texts.append(original_text)
-                    processed_index += 1
-            
-            # Store aligned arrays
-            st.session_state.original_texts = filtered_original_texts
-            st.session_state.processed_texts = processed_texts
-            st.session_state.preprocessing_settings = metadata
-            
-            st.success(f"Processing complete! {len(processed_texts)} texts ready for clustering.")
-            
-            # Auto-complete if conditions are met
-            if len(processed_texts) >= 10:
-                st.session_state.tab_b_complete = True
-                st.success("Preprocessing completed automatically!")
-                st.balloons()
-            
-            st.rerun()
-    
+            try:
+                # Process texts using backend
+                processed_texts, metadata = st.session_state.backend.preprocess_texts(
+                    original_texts, method, custom_settings, st.session_state.session_id
+                )
+                
+                # Store results with simplified alignment approach
+                st.session_state.processed_texts = processed_texts
+                st.session_state.preprocessing_metadata = metadata
+                st.session_state.preprocessing_settings = {
+                    'method': method,
+                    'details': f"{preprocessing_option} applied",
+                    'custom_settings': custom_settings if method == "custom" else {}
+                }
+                
+                # Store simplified row alignment - just the valid indices
+                st.session_state.row_alignment = metadata.get('valid_row_indices', list(range(len(processed_texts))))
+                
+                st.success(f"Processing complete! {len(processed_texts)} texts ready for clustering.")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Processing failed: {str(e)}")
+                return
+
     # Show results if processing is complete
     if st.session_state.processed_texts is not None:
-        metadata = st.session_state.preprocessing_settings
+        show_processing_results()
+
+def show_processing_results():
+    """Display processing results in a clear format"""
+    
+    processed_texts = st.session_state.processed_texts
+    original_texts = st.session_state.original_texts
+    row_alignment = st.session_state.get('row_alignment', [])
+    
+    st.subheader("Processing Results")
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Original Texts", len(original_texts))
+    with col2:
+        st.metric("Valid After Processing", len(processed_texts))
+    with col3:
+        filtered_count = len(original_texts) - len(processed_texts)
+        st.metric("Filtered Out", filtered_count)
+    with col4:
+        success_rate = (len(processed_texts) / len(original_texts)) * 100
+        st.metric("Success Rate", f"{success_rate:.1f}%")
+    
+    # Before/After comparison
+    st.subheader("Before/After Comparison")
+    
+    with st.expander("Sample Comparisons", expanded=True):
+        comparison_data = []
         
-        st.subheader("Before/After Analysis")
-        
-        # Get statistics from metadata
-        original_stats = metadata["original_stats"]
-        processed_stats = metadata["processed_stats"]
-        
-        # Summary metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Original texts", original_stats['total_texts'])
-            st.metric("Processed texts", len(st.session_state.processed_texts), 
-                     f"{len(st.session_state.processed_texts) - original_stats['total_texts']:+d}")
-        
-        with col2:
-            st.metric("Original avg length", f"{original_stats['avg_length']:.0f}")
-            st.metric("Processed avg length", f"{processed_stats['avg_length']:.0f}",
-                     f"{processed_stats['avg_length'] - original_stats['avg_length']:+.0f}")
-        
-        with col3:
-            st.metric("Original avg words", f"{original_stats['avg_words']:.1f}")
-            st.metric("Processed avg words", f"{processed_stats['avg_words']:.1f}",
-                     f"{processed_stats['avg_words'] - original_stats['avg_words']:+.1f}")
-        
-        with col4:
-            st.metric("Original unique", original_stats['unique_texts'])
-            st.metric("Processed unique", processed_stats['unique_texts'],
-                     f"{processed_stats['unique_texts'] - original_stats['unique_texts']:+d}")
-        
-        # Text comparison
-        st.subheader("Text Comparison")
-        with st.expander("Detailed Review", expanded=True):
-            # Ensure arrays are same length by matching valid texts
-            original_texts_filtered = []
-            processed_texts_display = st.session_state.processed_texts
+        # Show first 10 comparisons using the alignment
+        for i in range(min(10, len(processed_texts))):
+            original_idx = row_alignment[i] if i < len(row_alignment) else i
             
-            # Get the original texts that weren't filtered out
-            valid_original_texts = [text for text in st.session_state.original_texts 
-                                  if text and str(text).strip() and len(str(text).strip()) > 2]
-            
-            # Take only the same number as processed texts
-            min_length = min(len(valid_original_texts), len(processed_texts_display))
-            
-            comparison_df = pd.DataFrame({
-                "Original Text": valid_original_texts[:min_length],
-                "Pre-processed Text": processed_texts_display[:min_length]
-            })
-            
-            if len(st.session_state.original_texts) > len(processed_texts_display):
-                filtered_count = len(st.session_state.original_texts) - len(processed_texts_display)
-                st.info(f"Note: {filtered_count} texts were filtered out during processing (empty, too short, or whitespace only)")
-            
-            st.dataframe(
-                comparison_df,
-                use_container_width=True,
-                hide_index=True
-            )
-                    
-        # Processing summary
-        with st.expander("Preprocessing Summary"):
-            st.write(f"**Method:** {metadata['method']}")
-            st.write(f"**Details:** {metadata['details']}")
-            st.write(f"**Processing time:** {metadata['processing_time']:.2f} seconds")
-            st.write(f"**Results:** {metadata['filtered_count']} valid texts from {metadata['original_count']} original")
-            if metadata.get('custom_settings'):
-                st.write(f"**Custom settings:** {metadata['custom_settings']}")
-        
-        # Step status with celebration message
-        st.markdown("---")
-        st.subheader("Step Status")
-        
-        if len(st.session_state.processed_texts) >= 10:
-            if not st.session_state.get('tab_b_complete', False):
-                # Auto-complete preprocessing
-                st.session_state.tab_b_complete = True
+            # Ensure we don't go out of bounds
+            if original_idx < len(original_texts):
+                original_text = original_texts[original_idx]
+                processed_text = processed_texts[i]
                 
-                # Track preprocessing completion
-                st.session_state.backend.track_activity(st.session_state.session_id, "preprocessing", {
-                    "method": metadata['method'],
-                    "settings": metadata.get('custom_settings', {}),
-                    "original_count": metadata['original_count'],
-                    "final_count": metadata['filtered_count'],
-                    "processing_time": metadata['processing_time']
+                comparison_data.append({
+                    'Row': original_idx + 1,
+                    'Original Text': (original_text[:150] + "...") if len(original_text) > 150 else original_text,
+                    'Processed Text': (processed_text[:150] + "...") if len(processed_text) > 150 else processed_text
                 })
-                
-                st.balloons()
-                st.success("Preprocessing Complete!")
-                st.info("Proceed to Clustering →")
-            else:
-                # Already completed - show status
-                st.success("Preprocessing Complete!")
-                st.info("Proceed to Clustering →")
-            # Option to reprocess
-            if st.button("Reprocess with Different Settings", 
-                        help="Change preprocessing method"):
-                from utils.session_state import cascade_from_preprocessing
-                cascade_from_preprocessing()
-                st.session_state.tab_b_complete = False
-                st.session_state.processed_texts = None
-                st.session_state.preprocessing_settings = {}
-                st.info("Preprocessing reset. You can now modify settings above.")
-                st.rerun()
-        else:
-            st.error(f"Need at least 10 texts for clustering. Current: {len(st.session_state.processed_texts)}")
-            st.write("Try using less aggressive preprocessing or check your data quality.")
+        
+        if comparison_data:
+            comparison_df = pd.DataFrame(comparison_data)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
             
-            # Reset completion if insufficient texts
-            if st.session_state.get('tab_b_complete', False):
-                st.session_state.tab_b_complete = False
+            if len(processed_texts) > 10:
+                st.caption(f"Showing first 10 of {len(processed_texts)} processed texts")
+        else:
+            st.warning("No valid comparisons to show")
+    
+    # Quality check and completion
+    if len(processed_texts) >= 10:
+        st.success("Processing Complete! Ready for clustering.")
+        
+        # Auto-complete
+        if not st.session_state.get('tab_b_complete', False):
+            st.session_state.tab_b_complete = True
+            st.balloons()
+            
+            # Track completion
+            if hasattr(st.session_state, 'backend') and st.session_state.backend:
+                st.session_state.backend.track_activity(
+                    st.session_state.session_id, "preprocessing", {
+                        "method": st.session_state.preprocessing_settings['method'],
+                        "original_count": len(original_texts),
+                        "final_count": len(processed_texts)
+                    }
+                )
+        
+        st.info("Proceed to the Clustering tab to analyze your processed texts.")
+        
+        # Option to reprocess
+        if st.button("Reprocess with Different Settings"):
+            # Clear preprocessing results
+            st.session_state.processed_texts = None
+            st.session_state.preprocessing_metadata = {}
+            st.session_state.row_alignment = []
+            st.session_state.tab_b_complete = False
+            # Cascade to clustering
+            from utils.session_state import cascade_from_preprocessing
+            cascade_from_preprocessing()
+            st.rerun()
+            
+    else:
+        st.error(f"Need at least 10 valid texts for clustering. Current: {len(processed_texts)}")
+        st.info("Try using less aggressive preprocessing settings or check your data quality.")
+        st.session_state.tab_b_complete = False
+        
+    # Show processing details
+    with st.expander("Processing Details"):
+        settings = st.session_state.preprocessing_settings
+        st.write(f"**Method**: {settings['method']}")
+        st.write(f"**Description**: {settings['details']}")
+        if settings.get('custom_settings'):
+            st.write("**Custom Settings**:")
+            for key, value in settings['custom_settings'].items():
+                st.write(f"- {key.replace('_', ' ').title()}: {value}")
+        
+        metadata = st.session_state.preprocessing_metadata
+        if metadata:
+            st.write(f"**Processing Time**: {metadata.get('processing_time', 'N/A'):.2f} seconds")
+            st.write(f"**Texts Removed**: {metadata.get('texts_removed', 0)}")

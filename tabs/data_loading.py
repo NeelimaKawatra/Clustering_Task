@@ -188,11 +188,12 @@ def tab_a_data_loading(backend_available):
     # Respondent ID Column Selection
     st.markdown("**Step 1: Choose an ID column (Optional)**")
     auto_option = "Auto-generate IDs"
-    id_options = [auto_option] + list(df.columns)
+    prompt_option = "-- Select an ID column --"
+    id_options = [prompt_option, auto_option] + list(df.columns)
     
     # Setting up the default values for the id column
     if "respondent_id_column" not in st.session_state:
-        st.session_state.respondent_id_column = auto_option 
+        st.session_state.respondent_id_column = prompt_option 
     
     # Get safe index for ID column selection
     id_column_index = get_safe_index(id_options, st.session_state.get('respondent_id_column'))
@@ -203,14 +204,15 @@ def tab_a_data_loading(backend_available):
         options=id_options,
         index=id_column_index,
         help="Select a column to track individual responses",
-        key="id_selector"  # Changed from "respondent_id_column"
-)
-    st.session_state.respondent_id_column = selected_id
+        key="id_selector"
+    )
+    
+    # Only update session state if a valid option is selected
+    if selected_id != prompt_option:
+        st.session_state.respondent_id_column = selected_id
 
-# Removed the manual assignment line
-
-    # Show sample IDs with improved formatting and safety checks (ACTIVE VERSION)
-    if selected_id and selected_id != auto_option:
+    # Show sample IDs with improved formatting and safety checks
+    if selected_id and selected_id not in [auto_option, prompt_option]:
         try:
             sample_ids = df[selected_id].head(10).tolist()
             if sample_ids:
@@ -218,41 +220,28 @@ def tab_a_data_loading(backend_available):
                 st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
         except (KeyError, AttributeError):
             st.caption("Selected ID column not accessible")
-
-    # COMMENTED VERSION: Original remote approach (unsafe - can crash on "Auto-generate IDs")
-    """
-    # Original version from remote (COMMENTED OUT - would crash on auto-generate)
-    # show 10 sample ids with st.caption
-    if st.session_state.respondent_id_column is not None:
-        sample_ids = df[st.session_state.respondent_id_column].head(10).tolist()
-        if sample_ids:
-            formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
-            st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
-    """
     
     # Show ID column preview and validation
-    
-    if selected_id and selected_id != auto_option:
+    if selected_id and selected_id not in [auto_option, prompt_option]:
         try:
             id_column_data = df[selected_id]
             
             # Check if column is numeric
             if pd.api.types.is_numeric_dtype(id_column_data):
-                st.success(f"✓ Numeric ID column selected: {selected_id}")
+                st.success(f"Numeric ID column selected: {selected_id}")
             else:
-                st.warning(f"⚠ Non-numeric column selected. ID columns work best with numbers.")
+                st.warning(f"Non-numeric column selected. ID columns work best with numbers.")
                 
         except (KeyError, TypeError):
             st.error(f"Column '{selected_id}' not found in data")
             return
-        else:
-            st.info("Will create sequential IDs: ID_001, ID_002, etc.")
-            
+    elif selected_id == auto_option:
+        st.info("Will create sequential IDs: ID_001, ID_002, etc.")
     
     # Always generate clean IDs regardless of user choice
     if 'clean_ids' not in st.session_state or st.session_state.clean_ids is None:
         # Generate clean IDs for all rows
-        if selected_id != auto_option and selected_id in df.columns:
+        if selected_id not in [auto_option, prompt_option] and selected_id in df.columns:
             # Use existing column but clean it up
             raw_ids = df[selected_id].fillna("").astype(str)
             # Clean up the IDs - remove spaces, special chars, ensure uniqueness
@@ -274,71 +263,17 @@ def tab_a_data_loading(backend_available):
         
         st.session_state.clean_ids = clean_ids
 
-    # COMMENTED VERSION: Legacy code from remote (old approach)
-    """ 
-    # Legacy code from remote (COMMENTED OUT - old approach)
-    # if selected_id is not None:
-    #     if selected_id == auto_option:
-    #         st.session_state.respondent_id_column = None
-    #         st.info("💡 Will create sequential IDs: ID_001, ID_002, etc.")
-    #     else:
-    #         st.session_state.respondent_id_column = selected_id
-    #         # Show preview of selected ID column
-    #         sample_ids = df[selected_id].head(5).tolist()
-    #         st.code(f"Sample IDs: {sample_ids}")
-    #     #id_index should be updated to reflect the index of the selected column
-    #     st.session_state.id_index = id_options.index(selected_id)
-    """    
-
     # Text Column Section
     st.markdown("**Step 2: Choose a Text Column for Clustering**")
-    text_options = list(df.columns)
+    prompt_option_text = "-- Select a text column --"
+    text_options = [prompt_option_text] + list(df.columns)
     
-    # Setting up the default values for the text column (ACTIVE VERSION)
+    # Setting up the default values for the text column
     if "text_column" not in st.session_state:
         st.session_state.text_column = None
     
     # Get safe index for text column selection
     text_column_index = get_safe_index(text_options, st.session_state.get('text_column'))
-    
-    # Get text column suggestions with error handling (ACTIVE VERSION)
-    try:
-        text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-        if text_columns:
-            st.success(f"✓ Detected {len(text_columns)} text columns suitable for clustering")
-        else:
-            st.warning("⚠ No obvious text columns detected. Please verify your selection.")
-    except AttributeError:
-        # Simple fallback - check if column is text type
-        if selected_text_column and selected_text_column in df.columns:
-            if pd.api.types.is_object_dtype(df[selected_text_column]):
-                st.success("✓ Text column type detected")
-            else:
-                st.warning("⚠ Selected column may not contain text data")
-
-    # COMMENTED VERSION: Original remote approach for text column setup
-    """
-    # Original remote version approach (COMMENTED OUT - less robust)
-    else:
-        # Key exists, but value might be None or a column name
-        if st.session_state.text_column is None:
-            st.session_state.text_index = None
-        elif st.session_state.text_column in df.columns:
-            st.session_state.text_index = text_options.index(st.session_state.text_column)
-        else:
-            st.session_state.text_index = None  # Fallback if column doesn't exist in dataframe
-    
-    # Get text column suggestions from backend
-    text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-
-    # st.success message to show the number of potential text columns
-    if text_columns:
-        st.success(f"💡 Detected {len(text_columns)} text columns usable for clustering")
-        #for col in text_columns[:3]:  # Show top 3
-        #    if not df[col].dropna().empty:
-        #        sample_text = str(df[col].dropna().iloc[0])[:100] + "..." if len(str(df[col].dropna().iloc[0])) > 100 else str(df[col].dropna().iloc[0])
-        #        st.caption(f"**{col}:** {sample_text}")
-    """
     
     selected_text_column = st.selectbox(
         label="Choose a text column:",
@@ -346,12 +281,44 @@ def tab_a_data_loading(backend_available):
         options=text_options,
         index=text_column_index,
         help="Choose the column with text you want to cluster",
-        key="text_selector"  # Changed from "text_column"
-)
-    st.session_state.text_column = selected_text_column
+        key="text_selector"
+    )
     
-    # Show 10 sample texts with improved formatting and safety (ACTIVE VERSION)
-    if selected_text_column is not None:
+    # Only update session state if a valid option is selected
+    if selected_text_column != prompt_option_text:
+        st.session_state.text_column = selected_text_column
+    
+    # Store user selections for output structure
+    if 'user_selections' not in st.session_state:
+        st.session_state.user_selections = {}
+
+    # Only update user selections if valid columns are selected
+    if selected_text_column != prompt_option_text and selected_id != prompt_option:
+        st.session_state.user_selections.update({
+            'id_column_choice': selected_id,
+            'text_column_choice': selected_text_column,
+            'id_is_auto_generated': selected_id == auto_option,
+            'original_columns': [selected_id, selected_text_column] if selected_id != auto_option else [selected_text_column]
+        })
+    
+    # Get text column suggestions with error handling (moved after selectbox)
+    if selected_text_column and selected_text_column != prompt_option_text:
+        try:
+            text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+            if text_columns:
+                st.success(f"Detected {len(text_columns)} text columns suitable for clustering")
+            else:
+                st.warning("No obvious text columns detected. Please verify your selection.")
+        except AttributeError:
+            # Simple fallback - check if column is text type
+            if selected_text_column in df.columns:
+                if pd.api.types.is_object_dtype(df[selected_text_column]):
+                    st.success("Text column type detected")
+                else:
+                    st.warning("Selected column may not contain text data")
+    
+    # Show 10 sample texts with improved formatting and safety
+    if selected_text_column and selected_text_column != prompt_option_text:
         try:
             sample_texts = df[selected_text_column].dropna().head(10).tolist()
             if sample_texts:
@@ -360,27 +327,17 @@ def tab_a_data_loading(backend_available):
         except (KeyError, AttributeError):
             st.caption("Selected text column not accessible")
 
-    # COMMENTED VERSION: Original remote approach (unsafe - no error handling)
-    """
-    # Original version from remote (COMMENTED OUT - no error handling)
-    # show 10 sample texts with st.caption  
-    if st.session_state.text_column is not None:
-        sample_texts = df[st.session_state.text_column].dropna().head(10).tolist()
-        if sample_texts:
-            formatted_samples = ", ".join([f'"{str(text)}"' for text in sample_texts])
-            st.caption(f"**Sample texts : {{{formatted_samples}}}**")
-    """
-
     # Validation and Quality Analysis
-    if selected_text_column and selected_text_column in df.columns:
+    if (selected_text_column and selected_text_column != prompt_option_text and 
+        selected_text_column in df.columns):
         st.subheader("Data Quality Analysis")
         
         with st.spinner("Analyzing data quality..."):
             validation_result = st.session_state.backend.validate_columns(
                 df, 
                 selected_text_column, 
-        selected_id, 
-        st.session_state.session_id
+                selected_id if selected_id != prompt_option else None, 
+                st.session_state.session_id
             )
         
         if validation_result["text_column_valid"]:
@@ -479,14 +436,14 @@ def tab_a_data_loading(backend_available):
             
             with summary_col2:
                 st.markdown("**Text Configuration:**")
-                st.write(f"• **Column:** {st.session_state.text_column}")
+                st.write(f"• **Column:** {selected_text_column}")
                 st.write(f"• **Avg length:** {stats['avg_length']:.0f} characters")
                 st.write(f"• **Avg words:** {stats['avg_words']:.1f} words")
             
             with summary_col3:
                 st.markdown("**ID Configuration:**")
-                if st.session_state.respondent_id_column and st.session_state.respondent_id_column != "Auto-generate IDs":
-                    st.write(f"• **Column:** {st.session_state.respondent_id_column}")
+                if selected_id and selected_id not in [auto_option, prompt_option]:
+                    st.write(f"• **Column:** {selected_id}")
                     st.write(f"• **Status:** {id_analysis['status'].title()}")
                     st.write(f"• **Unique:** {id_analysis['unique']:,} IDs")
                 else:
@@ -508,8 +465,8 @@ def tab_a_data_loading(backend_available):
                         "filename": "loaded_data",
                         "rows": len(df),
                         "columns": len(df.columns),
-                        "text_column":st.write(f"• **Column:** {selected_text_column}"),
-                        "id_column": st.write(f"• **Column:** {selected_id}"),
+                        "text_column": selected_text_column,
+                        "id_column": selected_id,
                         "text_quality": stats
                     })
                 

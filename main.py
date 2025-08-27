@@ -196,6 +196,8 @@ def show_session_analytics():
 # MAIN CONTENT RENDERING
 # ============================================================================
 
+# main.py - Fixed render_main_content function with correct initialization order
+
 def render_main_content():
     """Render the main content area based on selected page"""
     
@@ -206,7 +208,17 @@ def render_main_content():
         st.error("Backend not available! Please ensure backend.py is in your project directory.")
         st.stop()
     
-    # Auto-detect changes and handle cascading
+    # IMPORTANT: Initialize session state FIRST, before any change detection
+    if 'initialize_session_state' in st.session_state:
+        init_session = st.session_state.initialize_session_state
+    else:
+        from utils.session_state import initialize_session_state
+        init_session = initialize_session_state
+    
+    # Initialize session state before doing anything else
+    init_session(st.session_state.get('BACKEND_AVAILABLE', False))
+    
+    # NOW it's safe to run change detection
     from utils.session_state import detect_changes_and_cascade, check_automatic_completion
     detect_changes_and_cascade()
     check_automatic_completion()
@@ -253,10 +265,6 @@ def render_main_content():
         st.markdown("---")
         tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
 
-        
-# ============================================================================
-# MAIN APPLICATION
-# ============================================================================
 
 def main():
     """Main app with fast startup and sidebar navigation"""
@@ -282,19 +290,13 @@ def main():
     
     apply_styles()
     
-    # Initialize session state
-    if 'initialize_session_state' in st.session_state:
-        init_session = st.session_state.initialize_session_state
-    else:
-        from utils.session_state import initialize_session_state
-        init_session = initialize_session_state
-    
-    init_session(st.session_state.get('BACKEND_AVAILABLE', False))
+    # NOTE: Session state initialization now happens INSIDE render_main_content
+    # before any change detection logic runs
     
     # Create sidebar navigation
     create_sidebar_navigation()
     
-    # Render main content
+    # Render main content (this now handles session state initialization internally)
     render_main_content()
 
 if __name__ == "__main__":

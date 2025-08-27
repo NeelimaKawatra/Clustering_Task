@@ -34,7 +34,7 @@ def tab_d_results(backend_available):
         st.error("Backend services not available. Please check backend installation.")
         return
     
-    
+
     results = st.session_state.clustering_results
     stats = results["statistics"]
     confidence = results["confidence_analysis"]
@@ -118,85 +118,113 @@ def tab_d_results(backend_available):
                     st.metric("High Confidence", details['high_confidence_count'])
                     st.metric("Cluster Size", details['size'])
     
-    # Export section
+   # Export section with dual views
     st.markdown("---")
-    st.subheader("📥 Export Results")
-    
-    # Create results dataframe using backend
-    results_df = st.session_state.backend.export_results(
-        results, 
-        st.session_state.df, 
-        st.session_state.text_column, 
-        st.session_state.respondent_id_column, 
-        st.session_state.session_id,
-        st.session_state.original_texts                                               #####################################
+    st.subheader("Export Results")
+
+    # Export view selector
+    export_view = st.radio(
+        "Choose export view:",
+        ["Summary View (Essential columns only)", "Detailed View (All columns)"],
+        horizontal=True
     )
-    
-    # Show preview
-    st.write("**Preview of export data:**")
-    st.dataframe(results_df.head(), use_container_width=True)
-    
-    # Export options
-    col1, col2, col3 = st.columns(3)
-    
+
+    # Get the appropriate dataframe
+    if export_view == "Summary View (Essential columns only)":
+        # Create summary export
+        results_df = st.session_state.backend.create_summary_export(
+            results,
+            st.session_state.df,
+            st.session_state.text_column,
+            st.session_state.respondent_id_column,
+            st.session_state.session_id
+        )
+        export_type = "summary"
+        filename_suffix = "_summary"
+    else:
+        # Create detailed export
+        results_df = st.session_state.backend.export_results(
+            results,
+            st.session_state.df,
+            st.session_state.text_column,
+            st.session_state.respondent_id_column,
+            st.session_state.session_id
+        )
+        export_type = "detailed"
+        filename_suffix = "_detailed"
+
+    # Show preview of selected export
+    st.write(f"**Preview of {export_type} export data:**")
+    st.dataframe(results_df.head(10), use_container_width=True)
+    st.caption(f"Showing first 10 rows of {len(results_df)} total rows")
+
+    # Show column information
+    with st.expander("Column Information"):
+        if export_type == "summary":
+            st.write("**Summary Export Columns:**")
+            for col in results_df.columns:
+                if col == 'auto_generated_id':
+                    st.write(f"• **{col}**: System-generated unique identifier")
+                elif col.startswith('user_id_'):
+                    st.write(f"• **{col}**: Your original ID column")
+                elif col.startswith('original_'):
+                    st.write(f"• **{col}**: Your original text data")
+                elif col == 'cluster_id':
+                    st.write(f"• **{col}**: Assigned cluster number (-1 = outlier)")
+                elif col == 'confidence_score':
+                    st.write(f"• **{col}**: Clustering confidence (0-1)")
+                elif col == 'confidence_level':
+                    st.write(f"• **{col}**: High/Medium/Low confidence category")
+                elif col == 'cluster_label':
+                    st.write(f"• **{col}**: Descriptive cluster name based on keywords")
+        else:
+            st.write("**Detailed Export includes all columns:**")
+            st.write("• All summary columns (above)")
+            st.write("• **processed_text**: Cleaned text used for clustering")
+            st.write("• Additional metadata columns")
+
+    # Export buttons
+    col1, col2, col3, col4 = st.columns(4)
+
     with col1:
         csv_data = results_df.to_csv(index=False)
         if st.download_button(
-            "📥 Download CSV",
+            f"Download {export_type.title()} CSV",
             csv_data,
-            "clustering_results.csv",
+            f"clustering_results{filename_suffix}.csv",
             "text/csv",
             use_container_width=True
         ):
             # Track export
             st.session_state.backend.track_activity(st.session_state.session_id, "export", {
-                "export_type": "csv",
-                "export_info": {"rows": len(results_df), "format": "csv"}
+                "export_type": f"csv_{export_type}",
+                "export_info": {"rows": len(results_df), "format": "csv", "view": export_type}
             })
-    
+
     with col2:
-        # Create summary report using backend
+        # Summary report
         summary_report = st.session_state.backend.create_summary_report(
-            results, 
-            st.session_state.preprocessing_settings, 
+            results,
+            st.session_state.preprocessing_settings,
             st.session_state.session_id
         )
         
         if st.download_button(
-            "📄 Download Summary Report",
+            "Download Summary Report",
             summary_report,
             "clustering_summary.txt",
             "text/plain",
             use_container_width=True
         ):
-            # Track export
             st.session_state.backend.track_activity(st.session_state.session_id, "export", {
-                "export_type": "summary",
+                "export_type": "summary_report",
                 "export_info": {"format": "text"}
             })
-    
+
     with col3:
-        if st.button("🔄 **New Analysis**", use_container_width=True):
-            # Get session analytics before clearing
-            session_summary = st.session_state.backend.get_session_analytics(st.session_state.session_id)
-            
-            # Clear all session state to start over
-            for key in list(st.session_state.keys()):
-                if key.startswith(('df', 'processed_', 'clustering_', 'tab_')):
-                    del st.session_state[key]
-            
-            # Show session summary
-            with st.expander("📊 Session Analytics"):
-                st.write("**Your Session Summary:**")
-                st.write(f"• Duration: {session_summary.get('duration_seconds', 0):.0f} seconds")
-                st.write(f"• Completion: {session_summary.get('completion_percentage', 0):.0f}%")
-                st.write(f"• Activities: {session_summary.get('total_activities', 0)}")
-                
-                activity_counts = session_summary.get('activity_counts', {})
-                if activity_counts:
-                    st.write("**Activity Breakdown:**")
-                    for activity, count in activity_counts.items():
-                        st.write(f"  - {activity.replace('_', ' ').title()}: {count}")
-            
-            st.success("✅ Ready for new analysis! Go to Data Loading tab.")
+        if st.button("Start New Analysis", use_container_width=True):
+            from utils.session_state import reset_analysis
+            reset_analysis()
+            st.success("Ready for new analysis! Go to Data Loading tab.")
             st.rerun()
+
