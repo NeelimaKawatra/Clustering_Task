@@ -1,4 +1,4 @@
-# utils/session_state.py - Unified and Complete Version
+# utils/session_state.py - Fixed version with proper persistent selections
 import streamlit as st
 import time
 
@@ -12,7 +12,7 @@ def initialize_session_state(backend_available=True):
     if 'clean_ids' not in st.session_state:
         st.session_state.clean_ids = []
     
-    # User selections
+    # User selections - FIXED: Don't reset if already exist
     if 'user_selections' not in st.session_state:
         st.session_state.user_selections = {
             'id_column_choice': None,
@@ -21,12 +21,12 @@ def initialize_session_state(backend_available=True):
             'original_columns': []
         }
     
-    # Column selections (keep both naming conventions for compatibility)
+    # Column selections - FIXED: Preserve existing selections
     if 'respondent_id_column' not in st.session_state:
-        st.session_state.respondent_id_column = "Auto-generate IDs"
+        st.session_state.respondent_id_column = "-- Select an ID column --"
     
     if 'text_column' not in st.session_state:
-        st.session_state.text_column = None
+        st.session_state.text_column = "-- Select a text column --"
     
     # Processing data
     if 'original_texts' not in st.session_state:
@@ -45,9 +45,9 @@ def initialize_session_state(backend_available=True):
             'custom_settings': {}
         }
     
-    # Row alignment tracking (simplified approach)
+    # Row alignment tracking
     if 'row_alignment' not in st.session_state:
-        st.session_state.row_alignment = []  # Maps processed text index to original row index
+        st.session_state.row_alignment = []
     
     # Clustering results
     if 'clustering_results' not in st.session_state:
@@ -99,25 +99,25 @@ def initialize_session_state(backend_available=True):
         st.session_state.file_uploader_reset = False
 
 def reset_analysis():
-    """Reset all analysis data while preserving navigation state"""
+    """Reset all analysis data while preserving navigation state - FIXED VERSION"""
+    
+    # Keys to completely reset (including column selections)
     keys_to_reset = [
         'df', 'clean_ids', 'original_texts', 'processed_texts',
         'preprocessing_metadata', 'preprocessing_settings', 'row_alignment',
         'clustering_results', 'tab_a_complete', 'tab_b_complete',
-        'tab_c_complete', 'user_selections', 'text_column',
-        'respondent_id_column', 'previous_file_key', 'state_fingerprints'
+        'tab_c_complete', 'previous_file_key', 'state_fingerprints'
     ]
     
+    # FIXED: Also reset column selections when doing full analysis reset
+    column_selection_keys = [
+        'respondent_id_column', 'text_column', 'user_selections'
+    ]
+    
+    # Reset main keys
     for key in keys_to_reset:
         if key in st.session_state:
-            if key == 'user_selections':
-                st.session_state[key] = {
-                    'id_column_choice': None,
-                    'text_column_choice': None,
-                    'id_is_auto_generated': True,
-                    'original_columns': []
-                }
-            elif key == 'preprocessing_settings':
+            if key == 'preprocessing_settings':
                 st.session_state[key] = {
                     'method': 'none',
                     'details': 'No preprocessing applied',
@@ -128,17 +128,30 @@ def reset_analysis():
             else:
                 st.session_state[key] = None
     
+    # Reset column selections
+    for key in column_selection_keys:
+        if key == 'user_selections':
+            st.session_state[key] = {
+                'id_column_choice': None,
+                'text_column_choice': None,
+                'id_is_auto_generated': True,
+                'original_columns': []
+            }
+        elif key == 'respondent_id_column':
+            st.session_state[key] = "-- Select an ID column --"
+        elif key == 'text_column':
+            st.session_state[key] = "-- Select a text column --"
+    
     # Reset to first page
     st.session_state.current_page = "data_loading"
     
     # Generate new file uploader key to force file uploader to clear
     st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
-    
-    # Set flag to show reset message
     st.session_state.file_uploader_reset = True
 
 def cascade_from_data_loading():
-    """Reset downstream steps when data changes"""
+    """Reset downstream steps when data changes - FIXED to preserve column selections"""
+    
     downstream_keys = [
         'processed_texts', 'original_texts', 'preprocessing_settings', 'preprocessing_metadata',
         'row_alignment', 'tab_b_complete', 'clustering_results', 'tab_c_complete'
@@ -163,6 +176,9 @@ def cascade_from_data_loading():
                 }
             else:
                 st.session_state[key] = None
+    
+    # IMPORTANT: Do NOT reset column selections during cascade
+    # Column selections should only reset on full analysis reset or new file upload
     
     if reset_items:
         reset_list = ", ".join(set(reset_items))
@@ -193,21 +209,18 @@ def cascade_from_preprocessing():
                 "steps_reset": ["clustering"]
             })
 
-# utils/session_state.py - Quick fix for the AttributeError
-# Replace the detect_changes_and_cascade function with this version:
-
 def detect_changes_and_cascade():
-    """Detect significant changes and cascade resets"""
+    """Detect significant changes and cascade resets - Enhanced with column change detection"""
     
-    # Initialize state_fingerprints if it doesn't exist or is None
+    # Initialize state_fingerprints if it doesn't exist
     if 'state_fingerprints' not in st.session_state or st.session_state.state_fingerprints is None:
         st.session_state.state_fingerprints = {}
     
     current_fingerprint = {
         'file_key': st.session_state.get('previous_file_key'),
+        'df_shape': tuple(st.session_state.df.shape) if st.session_state.get('df') is not None else None,
         'text_column': st.session_state.get('text_column'),
-        'id_column': st.session_state.get('respondent_id_column'),
-        'df_shape': tuple(st.session_state.df.shape) if st.session_state.get('df') is not None else None
+        'id_column': st.session_state.get('respondent_id_column')
     }
     
     previous_fingerprint = st.session_state.state_fingerprints.get('last_known', {})
@@ -215,32 +228,45 @@ def detect_changes_and_cascade():
     # Check for significant changes
     significant_changes = []
     
+    # File changes - most significant
     if (current_fingerprint.get('file_key') != previous_fingerprint.get('file_key') and 
         previous_fingerprint.get('file_key') is not None):
         significant_changes.append("file")
     
-    if (current_fingerprint.get('text_column') != previous_fingerprint.get('text_column') and 
-        previous_fingerprint.get('text_column') is not None):
-        significant_changes.append("text_column")
-    
+    # Data structure changes
     if (current_fingerprint.get('df_shape') != previous_fingerprint.get('df_shape') and 
         previous_fingerprint.get('df_shape') is not None):
         significant_changes.append("data_structure")
     
-    # Cascade if needed
+    # Column selection changes - should reset downstream processing
+    if (current_fingerprint.get('text_column') != previous_fingerprint.get('text_column') and
+        previous_fingerprint.get('text_column') is not None and
+        previous_fingerprint.get('text_column') not in ["-- Select a text column --", None] and
+        current_fingerprint.get('text_column') not in ["-- Select a text column --", None]):
+        significant_changes.append("text_column")
+    
+    if (current_fingerprint.get('id_column') != previous_fingerprint.get('id_column') and
+        previous_fingerprint.get('id_column') is not None and
+        previous_fingerprint.get('id_column') not in ["-- Select an ID column --", None, "Auto-generate IDs"] and
+        current_fingerprint.get('id_column') not in ["-- Select an ID column --", None, "Auto-generate IDs"]):
+        significant_changes.append("id_column")
+    
+    # Cascade if there are significant changes AND downstream processing exists
     if (significant_changes and 
         (st.session_state.get('tab_b_complete') or st.session_state.get('clustering_results'))):
         cascade_from_data_loading()
     
     # Store current fingerprint
     st.session_state.state_fingerprints['last_known'] = current_fingerprint
+
 def check_automatic_completion():
     """Check and auto-complete steps when conditions are met"""
     
     # Auto-complete Data Loading
     if (not st.session_state.get('tab_a_complete', False) and
         st.session_state.get('df') is not None and
-        st.session_state.get('text_column') is not None):
+        st.session_state.get('text_column') is not None and
+        st.session_state.get('text_column') != "-- Select a text column --"):
         
         if hasattr(st.session_state, 'backend') and st.session_state.backend:
             try:
@@ -295,3 +321,19 @@ def reset_file_state():
     
     # Set flag to show reset message
     st.session_state.file_uploader_reset = True
+
+def preserve_column_selections():
+    """Helper to preserve column selections during navigation - used internally"""
+    # This is called during navigation to ensure selections are maintained
+    preserved_selections = {
+        'respondent_id_column': st.session_state.get('respondent_id_column'),
+        'text_column': st.session_state.get('text_column'),
+        'user_selections': st.session_state.get('user_selections', {}).copy()
+    }
+    return preserved_selections
+
+def restore_column_selections(selections):
+    """Helper to restore column selections - used internally"""
+    for key, value in selections.items():
+        if value is not None:
+            st.session_state[key] = value
