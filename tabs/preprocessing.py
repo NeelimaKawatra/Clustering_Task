@@ -133,24 +133,24 @@ def show_processing_results():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Original Texts", len(original_texts))
+        st.metric("Original Rows", len(original_texts))
     with col2:
-        st.metric("Valid After Processing", len(processed_texts))
+        st.metric("Valid Rows After Preprocessing", len(processed_texts))
     with col3:
         filtered_count = len(original_texts) - len(processed_texts)
-        st.metric("Filtered Out", filtered_count)
+        st.metric("Filtered Out Rows", filtered_count)
     with col4:
         success_rate = (len(processed_texts) / len(original_texts)) * 100
-        st.metric("Success Rate", f"{success_rate:.1f}%")
+        st.metric("Kept Rows Percentage", f"{success_rate:.1f}%")
     
     # Before/After comparison
-    st.subheader("Before/After Comparison")
-    
+    st.subheader("Before / After Comparison")
+
     with st.expander("Sample Comparisons", expanded=True):
         comparison_data = []
         
-        # Show first 10 comparisons using the alignment
-        for i in range(min(10, len(processed_texts))):
+        # Show all comparisons using the alignment, filtering out empty texts
+        for i in range(len(processed_texts)):
             original_idx = row_alignment[i] if i < len(row_alignment) else i
             
             # Ensure we don't go out of bounds
@@ -158,21 +158,35 @@ def show_processing_results():
                 original_text = original_texts[original_idx]
                 processed_text = processed_texts[i]
                 
-                comparison_data.append({
-                    'Row': original_idx + 1,
-                    'Original Text': (original_text[:150] + "...") if len(original_text) > 150 else original_text,
-                    'Processed Text': (processed_text[:150] + "...") if len(processed_text) > 150 else processed_text
-                })
+                # Only include non-empty texts
+                if original_text.strip() and processed_text.strip():
+                    comparison_data.append({
+                        'Row': original_idx + 1,
+                        'Original Text': original_text,
+                        'Processed Text': processed_text
+                    })
         
         if comparison_data:
             comparison_df = pd.DataFrame(comparison_data)
-            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True, height=400)
             
-            if len(processed_texts) > 10:
-                st.caption(f"Showing first 10 of {len(processed_texts)} processed texts")
+            st.caption(f"Showing all {len(comparison_data)} non-empty text comparisons")
         else:
             st.warning("No valid comparisons to show")
-    
+
+        """ st.table to left align the text
+        def show_comparisons(df, align="left"):
+            assert align in ("left", "center")
+            styler = (
+                df.style
+                .set_properties(**{"text-align": align})
+                .set_table_styles([{"selector": "th", "props": [("text-align", align)]}])
+            )
+            st.table(styler)
+        show_comparisons(comparison_df, align="left") 
+        """
+
+
     # Quality check and completion
     if len(processed_texts) >= 10:
         st.success("Processing Complete! Ready for clustering.")
@@ -183,7 +197,7 @@ def show_processing_results():
             # AUTO-NAVIGATE
             from utils.session_state import auto_navigate_to_next_available
             auto_navigate_to_next_available()
-            st.balloons()
+            #st.balloons()
             
             # Track completion
             if hasattr(st.session_state, 'backend') and st.session_state.backend:
@@ -195,10 +209,10 @@ def show_processing_results():
                     }
                 )
         
-        st.info("Proceed to the Clustering tab to analyze your processed texts.")
+        st.info("Proceed to the **Clustering** tab to analyze your processed texts.")
         
         # Option to reprocess
-        if st.button("Reprocess with Different Settings"):
+        if st.button("Redo Preprocessing with Different Settings"):
             # Clear preprocessing results
             st.session_state.processed_texts = None
             st.session_state.preprocessing_metadata = {}
@@ -215,7 +229,7 @@ def show_processing_results():
         st.session_state.tab_b_complete = False
         
     # Show processing details
-    with st.expander("Processing Details"):
+    with st.expander("Preprocessing Details"):
         settings = st.session_state.preprocessing_settings
         st.write(f"**Method**: {settings['method']}")
         st.write(f"**Description**: {settings['details']}")

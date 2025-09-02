@@ -85,17 +85,14 @@ def tab_a_data_loading(backend_available):
         st.info("📁 File cleared. Please upload a new file to restart the analysis.")
         st.session_state.file_uploader_reset = False
     
-    # Create columns for better layout
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Choose your data file",
-            type=["csv", "xlsx", "xls"],
-            help="Upload your survey data or text file for clustering",
-            key=upload_key,
-            label_visibility="collapsed"
-        )
+
+    uploaded_file = st.file_uploader(
+        "Choose your data file",
+        type=["csv", "xlsx", "xls"],
+        help="Upload your survey data or text file for clustering",
+        key=upload_key,
+        label_visibility="collapsed"
+    )
 
     # Check if a new file was uploaded (different from previous)
     current_file_key = None
@@ -115,11 +112,6 @@ def tab_a_data_loading(backend_available):
         st.session_state.previous_file_key = current_file_key
         file_changed = bool(current_file_key)
 
-    with col2:
-        if uploaded_file is not None:
-            st.info(f"**File:** {uploaded_file.name}")
-            st.info(f"**Size:** {uploaded_file.size / 1024:.1f} KB")
-            st.info(f"**Type:** {uploaded_file.type}")
     
     # Process file upload if provided and changed
     if uploaded_file is not None and file_changed:
@@ -146,7 +138,7 @@ def tab_a_data_loading(backend_available):
             st.session_state.tab_a_complete = False
             
             st.success(f"{message}")
-            st.balloons()
+            #st.balloons()
             
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
@@ -182,15 +174,16 @@ def tab_a_data_loading(backend_available):
     # Show file metrics in columns
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
     with metric_col1:
-        st.metric("Total Rows", len(df))
+        file_name = getattr(uploaded_file, 'name', 'Loaded Data') if uploaded_file else 'Loaded Data'
+        st.metric("File Name", file_name)
     with metric_col2:
-        st.metric("Columns", len(df.columns))
+        st.metric("Total Rows", len(df))
     with metric_col3:
-        memory_usage = df.memory_usage(deep=True).sum() / 1024
-        st.metric("Memory", f"{memory_usage:.1f} KB")
+        st.metric("Total Columns", len(df.columns))
     with metric_col4:
         text_cols = len([col for col in df.columns if df[col].dtype == 'object'])
         st.metric("Text Columns", text_cols)
+    
     
     # Data Overview Section
     with st.expander("Data Preview", expanded=True):
@@ -204,31 +197,32 @@ def tab_a_data_loading(backend_available):
         # Column Statistics
         st.markdown("**Column Statistics:**")
         
-        # Create separate dictionaries for numeric and text statistics
-        stats_data = []
+        # Create statistics with columns as columns and metrics as rows
+        stats_data = {}
+        
+        # Initialize the stats dictionary with each column
         for col in df.columns:
             total_rows = len(df)
             empty_rows = int(df[col].isna().sum() + (df[col] == '').sum())
             non_empty_rows = int(total_rows - empty_rows)
             col_type = 'Text' if df[col].dtype == 'object' else 'Non-Text'
             
-            stats_data.append({
-                'Column': col,
+            stats_data[col] = {
                 'Total Rows': total_rows,
                 'Empty Rows': empty_rows,
                 'Non-Empty Rows': non_empty_rows,
                 'Column Type': col_type
-            })
+            }
         
-        # Create DataFrame with proper structure
+        # Create DataFrame with metrics as index and columns as columns
         stats_df = pd.DataFrame(stats_data)
-        st.dataframe(stats_df, use_container_width=True, hide_index=True)
+        st.dataframe(stats_df, use_container_width=True)
     
     # Column Selection Section
     st.subheader("Column Selection")
 
     # Respondent ID Column Selection with Enhanced Change Detection
-    st.markdown("**Step 1: Choose an ID column (Optional)**")
+    st.markdown("**Step 1: Choose an ID column (for display purposes only)**")
     auto_option = "Auto-generate IDs"
     prompt_option = "-- Select an ID column --"
     id_options = [prompt_option, auto_option] + list(df.columns)
@@ -386,7 +380,7 @@ def tab_a_data_loading(backend_available):
     # Validation and Quality Analysis
     if (selected_text_column and selected_text_column != prompt_option_text and 
         selected_text_column in df.columns):
-        st.subheader("Data Quality Analysis")
+        st.subheader("Text Column Quality Analysis")
         
         with st.spinner("Analyzing data quality..."):
             validation_result = st.session_state.backend.validate_columns(
@@ -455,6 +449,8 @@ def tab_a_data_loading(backend_available):
                         st.markdown("---")
             
             # ID column analysis
+            """ 
+            not showing id column analysis since it is not used for clustering
             id_analysis = validation_result["id_column_analysis"]
             
             st.markdown("**ID Column Analysis**")
@@ -476,6 +472,8 @@ def tab_a_data_loading(backend_available):
                         st.metric("Missing", id_analysis['missing'])
             else:
                 st.info(f"{id_analysis['message']}")
+            """
+
             
             # Ready to proceed section
             st.markdown("---")
@@ -490,18 +488,20 @@ def tab_a_data_loading(backend_available):
                 st.write(f"• **Valid texts:** {stats['total_texts'] - stats['empty_texts']:,}")
                 st.write(f"• **Data quality:** {'Excellent' if stats['avg_length'] > 50 else 'Good' if stats['avg_length'] > 20 else 'Fair'}")
             
-            with summary_col2:
+            with summary_col3:
                 st.markdown("**Text Configuration:**")
                 st.write(f"• **Column:** {selected_text_column}")
                 st.write(f"• **Avg length:** {stats['avg_length']:.0f} characters")
                 st.write(f"• **Avg words:** {stats['avg_words']:.1f} words")
             
-            with summary_col3:
+            with summary_col2:
                 st.markdown("**ID Configuration:**")
                 if selected_id and selected_id not in [auto_option, prompt_option]:
                     st.write(f"• **Column:** {selected_id}")
-                    st.write(f"• **Status:** {id_analysis['status'].title()}")
-                    st.write(f"• **Unique:** {id_analysis['unique']:,} IDs")
+                    col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[selected_id]) else 'Text'
+                    st.write(f"• **Type:** {col_type}")
+                    #st.write(f"• **Status:** {id_analysis['status'].title()}")
+                    #st.write(f"• **Unique:** {id_analysis['unique']:,} IDs")
                 else:
                     st.write("• **Type:** Auto-generated")
                     st.write("• **Format:** ID_001, ID_002...")
@@ -532,10 +532,11 @@ def tab_a_data_loading(backend_available):
                 from utils.session_state import auto_navigate_to_next_available
                 auto_navigate_to_next_available()
                 
-                st.balloons()
+                #st.balloons()
                 # Show completion message
-                st.success("Data Loading Complete!")
-                st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
+                #st.success("Data Loading Complete!")
+                #st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
+                st.info("Step 1 (Data Loading) is complete! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
                 
             else:
                 # Already completed - just show status
