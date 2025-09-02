@@ -337,3 +337,39 @@ def restore_column_selections(selections):
     for key, value in selections.items():
         if value is not None:
             st.session_state[key] = value
+
+# Updated auto_navigate_to_next_available function for session_state.py
+
+def auto_navigate_to_next_available():
+    """Automatically navigate to the next available step"""
+    # Set the flag that the sidebar navigation will check
+    st.session_state.should_navigate_next = True
+    
+    # Optional: Add a small delay to ensure the flag is processed
+    import time
+    time.sleep(0.1)
+    
+    # Log what step we're trying to navigate to (for debugging)
+    data_complete = bool(st.session_state.get('tab_a_complete', False))
+    preprocessing_complete = bool(st.session_state.get('tab_b_complete', False))
+    clustering_complete = bool(st.session_state.get('clustering_results') and 
+                             st.session_state.clustering_results.get("success", False))
+    
+    # Determine next step for logging
+    if not data_complete:
+        next_step = "data_loading"
+    elif not preprocessing_complete:
+        next_step = "preprocessing"
+    elif not clustering_complete:
+        next_step = "clustering"
+    else:
+        next_step = "finetuning_or_results"
+    
+    # Store for debugging
+    st.session_state.auto_nav_target = next_step
+    
+    # Optional: Show a brief success message
+    if hasattr(st, 'success'):
+        current_step = st.session_state.get('current_page', 'unknown')
+        if current_step != next_step:
+            st.success(f"✅ Step completed! Ready for {next_step.replace('_', ' ').title()}")

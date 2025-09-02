@@ -1,9 +1,26 @@
+# main.py - Fixed Clustery Application
 import streamlit as st
 import pandas as pd
 import os
 import time
 from collections import Counter
-from utils.session_state import reset_analysis
+
+import warnings
+warnings.filterwarnings("ignore")
+
+
+
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+st.set_page_config(
+    page_title="Clustery - Text Clustering Tool",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 # ============================================================================
 # FAST APP STARTUP WITH PROGRESSIVE LOADING
@@ -20,38 +37,45 @@ def initialize_app_with_progress():
         status_container = st.container()
         
         with progress_container:
-            progress_bar = st.progress(0.0)  # Fixed: Use 0.0
+            progress_bar = st.progress(0.0)
         
         with status_container:
             status_text = st.empty()
         
         # Step 1: Basic imports (fast)
         status_text.info("🔧 Loading core components...")
-        progress_bar.progress(0.25)  # Fixed: Use 0.25
-        time.sleep(0.5)
+        progress_bar.progress(0.25)
+        time.sleep(0.3)
         
-        # Step 2: Import backend (now much faster!)
+        # Step 2: Import backend
         status_text.info("🚀 Setting up backend services...")
-        progress_bar.progress(0.5)  # Fixed: Use 0.5
+        progress_bar.progress(0.5)
         
         try:
             from backend import ClusteryBackend
             st.session_state.BACKEND_AVAILABLE = True
-        except ImportError:
+            status_text.success("✅ Backend connected")
+        except ImportError as e:
             st.session_state.BACKEND_AVAILABLE = False
-            st.error("❌ Backend not found! Please ensure backend.py is in your project directory.")
+            st.error(f"❌ Backend not found! {e}")
+            st.error("Please ensure backend.py is in your project directory.")
+            return False
+        except Exception as e:
+            st.session_state.BACKEND_AVAILABLE = False
+            st.error(f"❌ Backend initialization failed: {e}")
             return False
         
-        # Step 3: Import tab modules (fast)
+        # Step 3: Import tab modules
         status_text.info("📋 Loading application modules...")
-        progress_bar.progress(0.75)  # Fixed: Use 0.75
+        progress_bar.progress(0.75)
         
         try:
             from tabs.data_loading import tab_a_data_loading
             from tabs.preprocessing import tab_b_preprocessing  
             from tabs.clustering import tab_c_clustering
             from tabs.results import tab_d_results
-            from utils.session_state import initialize_session_state
+            from tabs.finetuning import tab_e_finetuning
+            from utils.session_state import initialize_session_state, reset_analysis
             from utils.styles import apply_custom_styles
             
             # Store in session state for reuse
@@ -59,18 +83,29 @@ def initialize_app_with_progress():
                 'data_loading': tab_a_data_loading,
                 'preprocessing': tab_b_preprocessing,
                 'clustering': tab_c_clustering,
-                'results': tab_d_results
+                'results': tab_d_results,
+                'finetuning': tab_e_finetuning
             }
             st.session_state.initialize_session_state = initialize_session_state
             st.session_state.apply_custom_styles = apply_custom_styles
+            st.session_state.reset_analysis = reset_analysis
             
         except ImportError as e:
             st.error(f"❌ Failed to import modules: {e}")
+            st.error("Please check that all files are in the correct directories.")
             return False
         
-        # Step 4: Complete setup
+        # Step 4: Initialize session state
+        status_text.info("🔧 Initializing session...")
+        progress_bar.progress(0.9)
+        
+        # Initialize session state and apply styles
+        initialize_session_state(st.session_state.BACKEND_AVAILABLE)
+        apply_custom_styles()
+        
+        # Complete setup
         status_text.success("✅ Clustery ready!")
-        progress_bar.progress(1.0)  # Fixed: Use 1.0 
+        progress_bar.progress(1.0)
         
         time.sleep(0.5)
         
@@ -86,11 +121,12 @@ def initialize_app_with_progress():
     return True
 
 # ============================================================================
-# SIDEBAR NAVIGATION WITH BUTTONS
+# SIDEBAR NAVIGATION
 # ============================================================================
 
+
 def create_sidebar_navigation():
-    """Create clean sidebar with always-accessible navigation buttons"""
+    """Create clean sidebar with auto-navigation support"""
     
     with st.sidebar:
         # App branding
@@ -103,16 +139,41 @@ def create_sidebar_navigation():
         
         st.markdown("---")
         
+        # # Backend status
+        # if st.session_state.get('BACKEND_AVAILABLE', False):
+        #     st.success("✅ Backend Connected")
+        # else:
+        #     st.error("❌ Backend Unavailable")
+        
+        # st.markdown("---")
+        
         # Check completion status
         data_complete = bool(st.session_state.get('tab_a_complete', False))
         preprocessing_complete = bool(st.session_state.get('tab_b_complete', False))
-        clustering_complete = bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False))
+        clustering_complete = bool(st.session_state.get('clustering_results') and 
+                                 st.session_state.clustering_results.get("success", False))
         
         # Initialize current page if not set
         if 'current_page' not in st.session_state:
             st.session_state.current_page = "data_loading"
         
-        # Navigation buttons - all always accessible
+        # AUTO-NAVIGATION LOGIC - This is what was missing!
+        # Check if we should auto-navigate after completion
+        if st.session_state.get('should_navigate_next', False):
+            # Determine next step
+            if data_complete and not preprocessing_complete:
+                st.session_state.current_page = "preprocessing"
+            elif preprocessing_complete and not clustering_complete:
+                st.session_state.current_page = "clustering"  
+            elif clustering_complete and st.session_state.current_page != "results":
+                # Give user choice between results and finetuning
+                if st.session_state.current_page == "clustering":
+                    st.session_state.current_page = "finetuning"
+            
+            # Clear the navigation flag
+            st.session_state.should_navigate_next = False
+        
+        st.markdown("### Navigation")
         
         # 1. Data Loading - always available
         completion_indicator = "✅" if data_complete else "⭕"
@@ -123,31 +184,79 @@ def create_sidebar_navigation():
             st.session_state.current_page = "data_loading"
             st.rerun()
         
-        # 2. Preprocessing - always accessible
+        # 2. Preprocessing - accessible but show warning if prerequisites not met
         completion_indicator = "✅" if preprocessing_complete else "⭕"
+        button_type = "primary" if st.session_state.current_page == "preprocessing" else "secondary"
+        
         if st.button(f"{completion_indicator} Preprocessing", 
-                    type="primary" if st.session_state.current_page == "preprocessing" else "secondary",
+                    type=button_type,
                     use_container_width=True,
                     key="nav_preprocessing"):
-            st.session_state.current_page = "preprocessing"
+            if not data_complete:
+                st.error("⚠️ Complete Data Loading first!")
+                st.session_state.current_page = "data_loading"
+            else:
+                st.session_state.current_page = "preprocessing"
             st.rerun()
         
-        # 3. Clustering - always accessible
+        # 3. Clustering - accessible but show warning if prerequisites not met
         completion_indicator = "✅" if clustering_complete else "⭕"
+        button_type = "primary" if st.session_state.current_page == "clustering" else "secondary"
+        
         if st.button(f"{completion_indicator} Clustering", 
-                    type="primary" if st.session_state.current_page == "clustering" else "secondary",
+                    type=button_type,
                     use_container_width=True,
                     key="nav_clustering"):
-            st.session_state.current_page = "clustering"
+            if not preprocessing_complete:
+                st.error("⚠️ Complete Preprocessing first!")
+                if not data_complete:
+                    st.session_state.current_page = "data_loading"
+                else:
+                    st.session_state.current_page = "preprocessing"
+            else:
+                st.session_state.current_page = "clustering"
             st.rerun()
         
-        # 4. Results - always accessible
+        # 4. Fine-tuning - accessible but show warning if prerequisites not met
         completion_indicator = "✅" if clustering_complete else "⭕"
+        button_type = "primary" if st.session_state.current_page == "finetuning" else "secondary"
+        
+        if st.button(f"{completion_indicator} Fine-tuning", 
+                    type=button_type,
+                    use_container_width=True,
+                    key="nav_finetuning"):
+            if not clustering_complete:
+                st.error("⚠️ Complete Clustering first!")
+                # Navigate to the incomplete step
+                if not data_complete:
+                    st.session_state.current_page = "data_loading"
+                elif not preprocessing_complete:
+                    st.session_state.current_page = "preprocessing"
+                else:
+                    st.session_state.current_page = "clustering"
+            else:
+                st.session_state.current_page = "finetuning"
+            st.rerun()
+        
+        # 5. Results - accessible but show warning if prerequisites not met
+        completion_indicator = "✅" if clustering_complete else "⭕"
+        button_type = "primary" if st.session_state.current_page == "results" else "secondary"
+        
         if st.button(f"{completion_indicator} Results", 
-                    type="primary" if st.session_state.current_page == "results" else "secondary",
+                    type=button_type,
                     use_container_width=True,
                     key="nav_results"):
-            st.session_state.current_page = "results"
+            if not clustering_complete:
+                st.error("⚠️ Complete Clustering first!")
+                # Navigate to the incomplete step
+                if not data_complete:
+                    st.session_state.current_page = "data_loading"
+                elif not preprocessing_complete:
+                    st.session_state.current_page = "preprocessing"
+                else:
+                    st.session_state.current_page = "clustering"
+            else:
+                st.session_state.current_page = "results"
             st.rerun()
         
         st.markdown("---")
@@ -159,44 +268,49 @@ def create_sidebar_navigation():
         
         st.markdown("**Progress:**")
         st.progress(progress_percentage)
-        st.caption(f"{completed_steps}/{len(progress_steps)} steps completed")
+        st.caption(f"{completed_steps}/{len(progress_steps)} core steps completed")
+        
+        # Smart next step suggestions with auto-navigation
+        if not data_complete:
+            st.info("📁 Next: Upload your data file")
+        elif not preprocessing_complete:
+            st.info("🧹 Next: Process your text data") 
+            if st.button("→ Auto-Navigate to Preprocessing", use_container_width=True, key="auto_nav_prep"):
+                st.session_state.current_page = "preprocessing"
+                st.rerun()
+        elif not clustering_complete:
+            st.info("🔍 Next: Run clustering analysis")
+            if st.button("→ Auto-Navigate to Clustering", use_container_width=True, key="auto_nav_cluster"):
+                st.session_state.current_page = "clustering"
+                st.rerun()
+        else:
+            st.success("🎉 Analysis Complete!")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Fine-tune", use_container_width=True, key="quick_nav_finetune"):
+                    st.session_state.current_page = "finetuning"
+                    st.rerun()
+            with col2:
+                if st.button("View Results", use_container_width=True, key="quick_nav_results"):
+                    st.session_state.current_page = "results"
+                    st.rerun()
         
         st.markdown("---")
         
-        # Reset button at the bottom
+        from utils.session_state import reset_analysis
+
+        # Reset button at the bottom  
         if st.button("🔄 Start New Analysis", 
                     help="Clear all data and start over",
                     use_container_width=True,
-                    key="reset_analysis"):
-            reset_analysis()
+                    key="reset_analysis_btn"):   # ✅ renamed key
+            reset_analysis()   # ✅ call the function directly
             st.rerun()
-
-
-def show_session_analytics():
-    """Show session analytics in sidebar"""
-    if st.session_state.get('backend'):
-        try:
-            session_summary = st.session_state.backend.get_session_analytics(st.session_state.session_id)
-            
-            st.markdown("**Session Analytics:**")
-            st.caption(f"Duration: {session_summary.get('duration_seconds', 0):.0f}s")
-            st.caption(f"Activities: {session_summary.get('total_activities', 0)}")
-            
-            activity_counts = session_summary.get('activity_counts', {})
-            if activity_counts:
-                st.caption("**Activity Breakdown:**")
-                for activity, count in activity_counts.items():
-                    activity_name = activity.replace('_', ' ').title()
-                    st.caption(f"• {activity_name}: {count}")
-        except Exception as e:
-            st.caption(f"Analytics error: {str(e)}")
 
 
 # ============================================================================
 # MAIN CONTENT RENDERING
 # ============================================================================
-
-# main.py - Fixed render_main_content function with correct initialization order
 
 def render_main_content():
     """Render the main content area based on selected page"""
@@ -205,75 +319,76 @@ def render_main_content():
     
     # Show backend status warning if needed
     if not st.session_state.get('BACKEND_AVAILABLE', False):
-        st.error("Backend not available! Please ensure backend.py is in your project directory.")
-        st.stop()
+        st.error("⚠️ Backend not available! Some features may be limited.")
+        st.info("Please ensure backend.py is in your project directory and all dependencies are installed.")
     
-    # IMPORTANT: Initialize session state FIRST, before any change detection
-    if 'initialize_session_state' in st.session_state:
-        init_session = st.session_state.initialize_session_state
-    else:
-        from utils.session_state import initialize_session_state
-        init_session = initialize_session_state
+    # Run change detection and auto-completion
+    try:
+        from utils.session_state import detect_changes_and_cascade, check_automatic_completion
+        detect_changes_and_cascade()
+        check_automatic_completion()
+    except Exception as e:
+        st.warning(f"Session state management warning: {e}")
     
-    # Initialize session state before doing anything else
-    init_session(st.session_state.get('BACKEND_AVAILABLE', False))
-    
-    # NOW it's safe to run change detection
-    from utils.session_state import detect_changes_and_cascade, check_automatic_completion
-    detect_changes_and_cascade()
-    check_automatic_completion()
-    
-    # Get tab functions from session state or import them
+    # Get tab functions
     if 'tab_functions' in st.session_state:
         tab_functions = st.session_state.tab_functions
     else:
         # Fallback import if not in session state
-        from tabs.data_loading import tab_a_data_loading
-        from tabs.preprocessing import tab_b_preprocessing
-        from tabs.clustering import tab_c_clustering
-        from tabs.results import tab_d_results
-        
-        tab_functions = {
-            'data_loading': tab_a_data_loading,
-            'preprocessing': tab_b_preprocessing,
-            'clustering': tab_c_clustering,
-            'results': tab_d_results
-        }
+        try:
+            from tabs.data_loading import tab_a_data_loading
+            from tabs.preprocessing import tab_b_preprocessing
+            from tabs.clustering import tab_c_clustering
+            from tabs.results import tab_d_results
+            
+            tab_functions = {
+                'data_loading': tab_a_data_loading,
+                'preprocessing': tab_b_preprocessing,
+                'clustering': tab_c_clustering,
+                'results': tab_d_results
+            }
+        except ImportError as e:
+            st.error(f"Failed to import tab functions: {e}")
+            st.stop()
     
     # Render appropriate page content
-    if current_page == "data_loading":
-        st.markdown("# Data Loading")
-        st.markdown("Upload and configure your data for clustering analysis.")
-        st.markdown("---")
-        tab_functions['data_loading'](st.session_state.get('BACKEND_AVAILABLE', False))
-        
-    elif current_page == "preprocessing":
-        st.markdown("# Text Preprocessing")
-        st.markdown("Clean and prepare your text data for optimal clustering results.")
-        st.markdown("---")
-        tab_functions['preprocessing'](st.session_state.get('BACKEND_AVAILABLE', False))
-        
-    elif current_page == "clustering":
-        st.markdown("# Clustering Configuration")
-        st.markdown("Configure parameters and run the clustering algorithm.")
-        st.markdown("---")
-        tab_functions['clustering'](st.session_state.get('BACKEND_AVAILABLE', False))
-        
-    elif current_page == "results":
-        st.markdown("# Clustering Results")
-        st.markdown("Explore your clustering results and export findings.")
-        st.markdown("---")
-        tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
-
+    try:
+        if current_page == "data_loading":
+            st.markdown("# 📁 Data Loading")
+            st.markdown("Upload and configure your data for clustering analysis.")
+            st.markdown("---")
+            tab_functions['data_loading'](st.session_state.get('BACKEND_AVAILABLE', False))
+            
+        elif current_page == "preprocessing":
+            st.markdown("# 🧹 Text Preprocessing")
+            st.markdown("Clean and prepare your text data for optimal clustering results.")
+            st.markdown("---")
+            tab_functions['preprocessing'](st.session_state.get('BACKEND_AVAILABLE', False))
+            
+        elif current_page == "clustering":
+            st.markdown("# 🔍 Clustering Configuration")
+            st.markdown("Configure parameters and run the clustering algorithm.")
+            st.markdown("---")
+            tab_functions['clustering'](st.session_state.get('BACKEND_AVAILABLE', False))
+            
+        elif current_page == "finetuning":
+            st.markdown("# 🧩 Fine-tuning")
+            st.markdown("Manually adjust your clustering results using drag-and-drop and AI assistance.")
+            st.markdown("---")
+            tab_functions['finetuning'](st.session_state.get('BACKEND_AVAILABLE', False))
+            
+        elif current_page == "results":
+            st.markdown("# 📊 Clustering Results")
+            st.markdown("Explore your clustering results and export findings.")
+            st.markdown("---")
+            tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
+            
+    except Exception as e:
+        st.error(f"Error rendering {current_page}: {e}")
+        st.info("Try refreshing the page or restarting the analysis.")
 
 def main():
-    """Main app with fast startup and sidebar navigation"""
-    st.set_page_config(
-        page_title="Clustery - Text Clustering Tool",
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+    """Main app entry point"""
     
     # Check if app needs initialization
     if not st.session_state.get('app_initialized', False):
@@ -281,22 +396,14 @@ def main():
             st.stop()
         return
     
-    # Apply custom styles
+    # Apply custom styles (already initialized)
     if 'apply_custom_styles' in st.session_state:
-        apply_styles = st.session_state.apply_custom_styles
-    else:
-        from utils.styles import apply_custom_styles
-        apply_styles = apply_custom_styles
-    
-    apply_styles()
-    
-    # NOTE: Session state initialization now happens INSIDE render_main_content
-    # before any change detection logic runs
+        st.session_state.apply_custom_styles()
     
     # Create sidebar navigation
     create_sidebar_navigation()
     
-    # Render main content (this now handles session state initialization internally)
+    # Render main content
     render_main_content()
 
 if __name__ == "__main__":

@@ -288,6 +288,9 @@ def tab_c_clustering(backend_available):
                 
                 # Store results
                 st.session_state.clustering_results = clustering_results
+                # AUTO-NAVIGATE
+                from utils.session_state import auto_navigate_to_next_available
+                auto_navigate_to_next_available()
                 st.session_state.tab_c_complete = True
                 
                 # In clustering.py, replace the success section around line 180-190 with:

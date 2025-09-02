@@ -514,6 +514,8 @@ def tab_a_data_loading(backend_available):
             if not st.session_state.get('tab_a_complete', False):
                 # Auto-complete when validation passes
                 st.session_state.tab_a_complete = True
+
+            
                 
                 # Track completion
                 if backend_available:
@@ -525,6 +527,10 @@ def tab_a_data_loading(backend_available):
                         "id_column": selected_id,
                         "text_quality": stats
                     })
+                            
+                # AUTO-NAVIGATE: Add this here
+                from utils.session_state import auto_navigate_to_next_available
+                auto_navigate_to_next_available()
                 
                 st.balloons()
                 # Show completion message
@@ -575,3 +581,9 @@ def tab_a_data_loading(backend_available):
             if st.session_state.get('tab_a_complete', False):
                 st.session_state.tab_a_complete = False
                 st.rerun()
+
+            # In your data loading tab, when completion happens:
+            st.session_state.tab_a_complete = True
+            from utils.session_state import auto_navigate_to_next_available
+            auto_navigate_to_next_available()
+            st.rerun()
