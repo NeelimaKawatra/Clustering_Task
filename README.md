@@ -33,19 +33,30 @@ Navigate to `http://localhost:8501` and start clustering!
 
 ```
 Clustering_Task/
-├── main.py
-├── backend.py
-├── tabs/
-│   ├── __init__.py
-│   ├── data_loading.py
-│   ├── preprocessing.py
-│   ├── clustering.py
-│   └── results.py
-└── utils/
-    ├── __init__.py
-    ├── session_state.py
-    ├── styles.py
-    └── helpers.py
+├─ .gitignore
+├─ README.md
+├─ requirements.txt
+├─ env.yml
+├─ clustery_activity.log                 # run-time logs
+├─ main.py                               # app entrypoint (UI/orchestrates tabs)
+├─ backend.py                            # core pipeline: load → preprocess → cluster → evaluate
+├─ backend_finetuning.py                 # hyperparam search / tuning for clustering
+├─ logs/                                 # (extra logs)
+├─ tabs/
+│  ├─ __init__.py
+│  ├─ data_loading.py                    # file upload, dtype casting, column selection
+│  ├─ preprocessing.py                   # impute, scale, encode, PCA/UMAP
+│  ├─ clustering.py                      # KMeans/DBSCAN/Agglomerative/GMM wrappers
+│  ├─ results.py                         # metrics, plots, cluster summaries
+│  └─ finetuning.py                      # search strategies & scoring
+├─ utils/
+│  ├─ __init__.py
+│  ├─ helpers.py                         # small utilities
+│  ├─ llm_config.py                      # config for LLM features (if used)
+│  ├─ llm_wrapper.py                     # LLM helper
+│  ├─ session_state.py                   # app/session state handling
+│  ├─ styles.py                          # UI styling/theme helpers
+
 ```
 ####Frontend is split into tabs and utils for ease.
 ## 🛠️ Usage Guide
