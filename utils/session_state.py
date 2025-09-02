@@ -368,8 +368,10 @@ def auto_navigate_to_next_available():
     # Store for debugging
     st.session_state.auto_nav_target = next_step
     
+    """
     # Optional: Show a brief success message
     if hasattr(st, 'success'):
         current_step = st.session_state.get('current_page', 'unknown')
         if current_step != next_step:
             st.success(f"✅ Step completed! Ready for {next_step.replace('_', ' ').title()}")
+    """

@@ -92,7 +92,7 @@ def tab_c_clustering(backend_available):
     if backend_available:
         st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "clustering"})
     
-    st.header("Clustering Configuration")
+    #st.header("Clustering Configuration")
 
    
     # Add this at the beginning of tab_c_clustering function, after the track_activity call:
@@ -363,4 +363,5 @@ def tab_c_clustering(backend_available):
         # Show the setup summary again for easy reference
         show_setup_summary(results)
         
-        st.info("**View detailed results in the Results tab!**")
+        st.info("**Clustering Complete! View detailed results in the Results tab!**")
+        st.info("If you would like to manually adjust the clustering results, go to the Finetuning tab.")

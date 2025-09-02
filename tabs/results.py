@@ -7,7 +7,7 @@ def tab_d_results(backend_available):
     if backend_available:
         st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "results"})
     
-    st.header("📊 Clustering Results")
+    #st.header("📊 Clustering Results")
 
     
     

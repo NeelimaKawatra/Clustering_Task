@@ -78,7 +78,7 @@ def tab_b_preprocessing(backend_available):
             custom_settings['remove_numbers'] = st.checkbox("Remove numbers", value=True)
 
     # Process button
-    if st.button("Process Text", type="primary"):
+    if st.button("Preprocess Text", type="primary"):
         with st.spinner("Processing text..."):
             
             # Map options to methods
@@ -189,7 +189,7 @@ def show_processing_results():
 
     # Quality check and completion
     if len(processed_texts) >= 10:
-        st.success("Processing Complete! Ready for clustering.")
+        st.success("Preprocessing Complete!")
         
         # Auto-complete
         if not st.session_state.get('tab_b_complete', False):
@@ -209,7 +209,7 @@ def show_processing_results():
                     }
                 )
         
-        st.info("Proceed to the **Clustering** tab to analyze your processed texts.")
+        st.info("Proceed to the **Clustering** tab to analyze your preprocessed texts.")
         
         # Option to reprocess
         if st.button("Redo Preprocessing with Different Settings"):

@@ -271,7 +271,8 @@ def tab_a_data_loading(backend_available):
             
             # Check if column is numeric
             if pd.api.types.is_numeric_dtype(id_column_data):
-                st.success(f"Numeric ID column selected: {selected_id}")
+                #st.success(f"Numeric ID column selected: {selected_id}")
+                pass
             else:
                 st.warning(f"Non-numeric column selected. ID columns work best with numbers.")
                 
@@ -309,7 +310,21 @@ def tab_a_data_loading(backend_available):
     # Text Column Section with Enhanced Change Detection
     st.markdown("**Step 2: Choose a Text Column for Clustering**")
     prompt_option_text = "-- Select a text column --"
-    text_options = [prompt_option_text] + list(df.columns)
+    
+    # Get text column suggestions first to filter options
+    text_columns = []
+    if backend_available:
+        try:
+            text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+        except AttributeError:
+            # Simple fallback - check for text-like columns
+            text_columns = [col for col in df.columns if pd.api.types.is_object_dtype(df[col])]
+    else:
+        # Fallback when backend not available
+        text_columns = [col for col in df.columns if pd.api.types.is_object_dtype(df[col])]
+    
+    # Create filtered options - only show text columns plus prompt
+    text_options = [prompt_option_text] + text_columns
     
     # FIXED: Preserve existing text column selection
     current_text_selection = st.session_state.get('text_column', prompt_option_text)
@@ -351,21 +366,15 @@ def tab_a_data_loading(backend_available):
             'original_columns': [selected_id, selected_text_column] if selected_id != auto_option else [selected_text_column]
         })
     
-    # Get text column suggestions with error handling
+    # Show feedback about text column detection
     if selected_text_column and selected_text_column != prompt_option_text:
-        try:
-            text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-            if text_columns:
-                st.success(f"Detected {len(text_columns)} text columns suitable for clustering")
-            else:
-                st.warning("No obvious text columns detected. Please verify your selection.")
-        except AttributeError:
-            # Simple fallback - check if column is text type
-            if selected_text_column in df.columns:
-                if pd.api.types.is_object_dtype(df[selected_text_column]):
-                    st.success("Text column type detected")
-                else:
-                    st.warning("Selected column may not contain text data")
+        if text_columns:
+            #st.success(f"Text column selected: {selected_text_column}" )
+            # telling how many text columns were detected
+            #st.success(f"Text column selected from {len(text_columns)} text columns")
+            pass
+        else:
+            st.warning("No obvious text columns detected. Please verify your selection.")
     
     # Show 10 sample texts with improved formatting and safety
     if selected_text_column and selected_text_column != prompt_option_text:
@@ -534,13 +543,12 @@ def tab_a_data_loading(backend_available):
                 
                 #st.balloons()
                 # Show completion message
-                #st.success("Data Loading Complete!")
-                #st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
-                st.info("Step 1 (Data Loading) is complete! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
+                st.success("Data Loading Complete!")
+                st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
                 
             else:
                 # Already completed - just show status
-                st.success("Data Loading Complete")
+                st.success("Data Loading Complete!")
                 st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
             
             # Show feedback if changes were made during this session

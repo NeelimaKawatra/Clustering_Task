@@ -130,13 +130,14 @@ def create_sidebar_navigation():
     
     with st.sidebar:
         # App branding
+        
         st.markdown("""
         <div style="text-align: center; padding: 20px 0;">
             <h1 style="color: #667eea; margin: 0; font-size: 1.8rem;">🔍 Clustery</h1>
             <p style="color: #666; margin: 5px 0 0 0; font-size: 0.9rem;">Text Clustering Tool</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
         st.markdown("---")
         
         # # Backend status
