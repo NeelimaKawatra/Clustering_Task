@@ -248,8 +248,9 @@ def tab_data_loading(backend_available):
 
     # subject id column selection
     st.markdown("**Step 1: Choose a column for subject identification**")
-    auto_option = "entryID (row numbers)"
+    auto_option = " use entryID (row numbers) as subject IDs"
     prompt_option = "-- Select a subject ID column--"
+
     # Include entryID as a selectable option
     available_columns = [col for col in df.columns if col != 'entryID']
     id_options = [prompt_option, auto_option] + available_columns
@@ -259,64 +260,51 @@ def tab_data_loading(backend_available):
         st.error("No valid options available for ID selection.")
         return
     
-    # Preserve existing selection when navigating between tabs
-    current_id_selection = st.session_state.get('subjectID', prompt_option)
-    
-    # Only reset to prompt if we're in a fresh state (no previous selection made)
-    if current_id_selection is None:
-        current_id_selection = prompt_option
-    
-    # Ensure the current selection is valid for current data
+    # get the current subject id selection
+    current_id_selection = st.session_state.get('subjectID', prompt_option) or prompt_option
+
+    # Display "entryID" as the auto label in the UI
+    if current_id_selection == "entryID":
+        current_id_selection = auto_option
     if current_id_selection not in id_options:
         current_id_selection = prompt_option
-    
+
+    # get the index of the current subject id selection
     id_column_index = get_safe_index(id_options, current_id_selection, 0)
-    
-    # Selectbox for ID column
+
+    # selectbox for the subject id column
     selected_id = st.selectbox(
         label="Choose a column for ID:",
         label_visibility="collapsed",
         options=id_options,
         index=id_column_index,
         help="Select a column to track individual responses"
-        )
+    )
 
-    # Map the UI label (auto_option) to the actual df column "entryID"
+    # Map any auto label to the real column
     if selected_id == auto_option:
         selected_id = "entryID"
 
-    # Change detection & state
-    if selected_id != st.session_state.get('respondent_id_column'):
-        handle_column_selection_change(
-            selected_id,
-            st.session_state.get('respondent_id_column'),
-            "ID"
-        )
-    
-    # Save the user's subject ID choice
-    #st.session_state.respondent_id_column = selected_id
+    # get the previous subject id selection
+    prev = st.session_state.get('subjectID')
+    if selected_id != prev:
+        handle_column_selection_change(selected_id, prev, "ID")
+
+    # save the selected subject id to the session state 
     st.session_state.subjectID = selected_id
 
-    # Info banner
-    if selected_id == auto_option:
-        st.info("Using entryID (row numbers) as subject identifiers.")
-
-    # Show sample IDs with improved formatting and safety checks
-    if selected_id and selected_id not in [auto_option, prompt_option]:
+    # Show sample subject IDs
+    if selected_id and selected_id != prompt_option:
         try:
-            if selected_id == auto_option:
-                sample_ids = df[selected_id].head(10).tolist()
-                if sample_ids:
-                    formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
-                    st.caption(f"**Sample entryIDs: {{{formatted_ids}}}**")
-            else:
-                sample_ids = df[selected_id].head(10).tolist()
-                if sample_ids:
-                    formatted_ids = ", ".join([f'"{str(id)}"' for id in sample_ids])
-                    st.caption(f"**Sample IDs: {{{formatted_ids}}}**")
+            col_to_show = "entryID" if selected_id == "entryID" else selected_id
+            sample_ids = df[col_to_show].head(10).tolist()
+            if sample_ids:
+                formatted = ", ".join([f'"{str(x)}"' for x in sample_ids])
+                st.caption(f"**Sample subject IDs: {{{formatted}}}**")
         except (KeyError, AttributeError):
             st.caption("Selected ID column not accessible")
-    
+
+
     # Show ID column preview and validation
     if selected_id and selected_id not in [auto_option, prompt_option]:
         try:
@@ -337,38 +325,9 @@ def tab_data_loading(backend_available):
             st.error(f"Column '{selected_id}' not found in data")
             return
     elif selected_id == auto_option:
-        st.info("Will provide you with your row numbers as your subject IDs.")
+        pass
+        #st.info("Will provide you with your row numbers as your subject IDs.")
     
-    """
-    # Always generate clean IDs regardless of user choice
-    if 'clean_ids' not in st.session_state or st.session_state.clean_ids is None or len(st.session_state.clean_ids) == 0:
-        # Generate clean IDs for all rows
-        if selected_id not in [auto_option, prompt_option] and selected_id in df.columns:
-            if selected_id == 'entryID':
-                # Use entryID values directly as clean IDs
-                clean_ids = df[selected_id].astype(str).tolist()
-            else:
-                # Use existing column but clean it up
-                raw_ids = df[selected_id].fillna("").astype(str)
-                # Clean up the IDs - remove spaces, special chars, ensure uniqueness
-                clean_ids = []
-                seen_ids = set()
-                for i, raw_id in enumerate(raw_ids):
-                    if raw_id.strip() and raw_id not in seen_ids:
-                        clean_id = re.sub(r'[^\w\-_]', '', raw_id.strip())[:20]  # Clean and limit length
-                        if clean_id:
-                            clean_ids.append(clean_id)
-                            seen_ids.add(raw_id)
-                        else:
-                            clean_ids.append(f"{i+1:03d}")
-                    else:
-                        clean_ids.append(f"{i+1:03d}")
-        else:
-            # Auto-generate sequential IDs
-            clean_ids = [f"{i+1:03d}" for i in range(len(df))]
-        
-        st.session_state.clean_ids = clean_ids
-    """
 
     # Text Column Section with Enhanced Change Detection
     st.markdown("**Step 2: Choose a Text Column for Clustering**")
@@ -425,11 +384,12 @@ def tab_data_loading(backend_available):
         st.session_state.user_selections.update({
             'id_column_choice': selected_id,
             'text_column_choice': selected_text_column,
-            'id_is_auto_generated': selected_id == auto_option,
-            'subjectID': selected_id,  # Save the user's subject ID choice
-            'original_columns': [selected_id, selected_text_column] if selected_id not in [auto_option, 'entryID'] else [selected_text_column]
+            'id_is_auto_generated': selected_id == "entryID", 
+            'subjectID': selected_id,
+            'original_columns': [selected_id, selected_text_column] if selected_id != 'entryID' else [selected_text_column]
         })
-    
+
+
     # Show feedback about text column detection
     if selected_text_column and selected_text_column != prompt_option_text:
         if text_columns:
@@ -520,32 +480,6 @@ def tab_data_loading(backend_available):
                             st.caption(f"Chars: {char_count}")
                         
                         st.markdown("---")
-            
-            # ID column analysis
-            """ 
-            not showing id column analysis since it is not used for clustering
-            id_analysis = validation_result["id_column_analysis"]
-            
-            st.markdown("**ID Column Analysis**")
-            if id_analysis["status"] == "perfect":
-                st.success(f"{id_analysis['message']}")
-            elif id_analysis["status"] in ["duplicates", "missing"]:
-                st.warning(f"{id_analysis['message']}")
-                
-                # Show detailed ID analysis
-                id_detail_col1, id_detail_col2, id_detail_col3 = st.columns(3)
-                with id_detail_col1:
-                    st.metric("Total IDs", id_analysis['total'])
-                with id_detail_col2:
-                    st.metric("Unique IDs", id_analysis['unique'])
-                with id_detail_col3:
-                    if 'duplicates' in id_analysis:
-                        st.metric("Duplicates", id_analysis['duplicates'])
-                    elif 'missing' in id_analysis:
-                        st.metric("Missing", id_analysis['missing'])
-            else:
-                st.info(f"{id_analysis['message']}")
-            """
 
             
             # Ready to proceed section
@@ -569,11 +503,11 @@ def tab_data_loading(backend_available):
             
             with summary_col2:
                 st.markdown("**Subject ID Configuration:**")
-                if selected_id and selected_id not in [auto_option, prompt_option]:
+                if selected_id and selected_id != prompt_option:
                     if selected_id == 'entryID':
                         st.write("• **Source:** entryID (row numbers)")
                         st.write("• **Type:** Auto-generated")
-                        st.write("• **Format:** 0, 1, 2, 3...")
+                        st.write("• **Format:** 1, 2, 3, 4...")
                     else:
                         st.write(f"• **Column:** {selected_id}")
                         col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[selected_id]) else 'Text'
