@@ -2,8 +2,8 @@
 import streamlit as st
 import pandas as pd
 
-def tab_b_preprocessing(backend_available):
-    """Tab B: Simplified Text Preprocessing with clear data alignment"""
+def tab_preprocessing(backend_available):
+    """Tab: Simplified Text Preprocessing with clear data alignment"""
     
     # Track tab visit
     if backend_available:
@@ -12,7 +12,7 @@ def tab_b_preprocessing(backend_available):
         )
     
     # Check prerequisites
-    if not st.session_state.get('tab_a_complete', False):
+    if not st.session_state.get('tab_data_loading_complete', False):
         st.error("Please complete Data Loading first!")
         st.info("Go to the Data Loading tab to load and configure your data.")
         return
@@ -192,8 +192,8 @@ def show_processing_results():
         st.success("Preprocessing Complete!")
         
         # Auto-complete
-        if not st.session_state.get('tab_b_complete', False):
-            st.session_state.tab_b_complete = True
+        if not st.session_state.get('tab_preprocessing_complete', False):
+            st.session_state.tab_preprocessing_complete = True
             # AUTO-NAVIGATE
             from utils.session_state import auto_navigate_to_next_available
             auto_navigate_to_next_available()
@@ -217,7 +217,7 @@ def show_processing_results():
             st.session_state.processed_texts = None
             st.session_state.preprocessing_metadata = {}
             st.session_state.row_alignment = []
-            st.session_state.tab_b_complete = False
+            st.session_state.tab_preprocessing_complete = False
             # Cascade to clustering
             from utils.session_state import cascade_from_preprocessing
             cascade_from_preprocessing()
@@ -226,7 +226,7 @@ def show_processing_results():
     else:
         st.error(f"Need at least 10 valid texts for clustering. Current: {len(processed_texts)}")
         st.info("Try using less aggressive preprocessing settings or check your data quality.")
-        st.session_state.tab_b_complete = False
+        st.session_state.tab_preprocessing_complete = False
         
     # Show processing details
     with st.expander("Preprocessing Details"):

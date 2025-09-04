@@ -3,11 +3,11 @@
 Tab modules for Clustery application with sidebar navigation support
 """
 
-from .frontend_data_loading import tab_a_data_loading
-from .frontend_preprocessing import tab_b_preprocessing
-from .frontend_clustering import tab_c_clustering
-from .frontend_results import tab_d_results
-from .frontend_finetuning import tab_e_finetuning
+from .frontend_data_loading import tab_data_loading
+from .frontend_preprocessing import tab_preprocessing
+from .frontend_clustering import tab_clustering
+from .frontend_results import tab_results
+from .frontend_finetuning import tab_finetuning
 
 # Navigation helper functions
 def get_tab_status():
@@ -15,8 +15,8 @@ def get_tab_status():
     import streamlit as st
     
     return {
-        'data_loading': bool(st.session_state.get('tab_a_complete', False)),
-        'preprocessing': bool(st.session_state.get('tab_b_complete', False)),
+        'data_loading': bool(st.session_state.get('tab_data_loading_complete', False)),
+        'preprocessing': bool(st.session_state.get('tab_preprocessing_complete', False)),
         'clustering': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False)),
         'results': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False)),
         'finetuning': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False))
@@ -45,11 +45,11 @@ def set_current_page(page_name):
     st.session_state.current_page = page_name
 
 __all__ = [
-    'tab_a_data_loading',
-    'tab_b_preprocessing', 
-    'tab_c_clustering',
-    'tab_d_results',
-    'tab_e_finetuning',
+    'tab_data_loading',
+    'tab_preprocessing', 
+    'tab_clustering',
+    'tab_results',
+    'tab_finetuning',
     'get_tab_status',
     'navigate_to_next_tab',
     'set_current_page'

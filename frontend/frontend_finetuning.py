@@ -15,8 +15,8 @@ from backend.finetuning_backend import get_finetuning_backend
 # FINETUNING TAB (your original UI)
 # =============================================================================
 
-def tab_e_finetuning(backend_available: bool):
-    """Tab E: Human-in-the-Loop Fine-tuning with proper backend API"""
+def tab_finetuning(backend_available: bool):
+    """Tab: Human-in-the-Loop Fine-tuning with proper backend API"""
 
     # Track tab visit
     if backend_available and hasattr(st.session_state, "backend") and st.session_state.backend:

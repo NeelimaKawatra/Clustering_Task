@@ -1,7 +1,7 @@
 import streamlit as st
 
-def tab_d_results(backend_available):
-    """Tab D: Results Visualization and Export using backend services"""
+def tab_results(backend_available):
+    """Tab: Results Visualization and Export using backend services"""
     
     # Track tab visit
     if backend_available:
@@ -11,15 +11,15 @@ def tab_d_results(backend_available):
 
     
     
-   # Add this at the beginning of tab_d_results function, after the track_activity call:
+   # Add this at the beginning of tab_results function, after the track_activity call:
 
     # Check prerequisites first
-    if not st.session_state.get('tab_a_complete', False):
+    if not st.session_state.get('tab_data_loading_complete', False):
         st.error("Please complete Data Loading first!")
         st.info("Go to the Data Loading tab to load and configure your data.")
         return
     
-    if not st.session_state.get('tab_b_complete', False):
+    if not st.session_state.get('tab_preprocessing_complete', False):
         st.error("Please complete Preprocessing first!")
         st.info("Go to the Preprocessing tab to process your text data.")
         return

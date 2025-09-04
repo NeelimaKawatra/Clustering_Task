@@ -55,14 +55,14 @@ def initialize_session_state(backend_available=True):
         st.session_state.clustering_results = None
     
     # Tab completion status
-    if 'tab_a_complete' not in st.session_state:
-        st.session_state.tab_a_complete = False
+    if 'tab_data_loading_complete' not in st.session_state:
+        st.session_state.tab_data_loading_complete = False
     
-    if 'tab_b_complete' not in st.session_state:
-        st.session_state.tab_b_complete = False
+    if 'tab_preprocessing_complete' not in st.session_state:
+        st.session_state.tab_preprocessing_complete = False
     
-    if 'tab_c_complete' not in st.session_state:
-        st.session_state.tab_c_complete = False
+    if 'tab_clustering_complete' not in st.session_state:
+        st.session_state.tab_clustering_complete = False
     
     # Navigation
     if 'current_page' not in st.session_state:
@@ -106,8 +106,8 @@ def reset_analysis():
     keys_to_reset = [
         'df', 'clean_ids', 'original_texts', 'processed_texts',
         'preprocessing_metadata', 'preprocessing_settings', 'row_alignment',
-        'clustering_results', 'tab_a_complete', 'tab_b_complete',
-        'tab_c_complete', 'previous_file_key', 'state_fingerprints'
+        'clustering_results', 'tab_data_loading_complete', 'tab_preprocessing_complete',
+        'tab_clustering_complete', 'previous_file_key', 'state_fingerprints'
     ]
     
     # FIXED: Also reset column selections when doing full analysis reset
@@ -155,13 +155,13 @@ def cascade_from_data_loading():
     
     downstream_keys = [
         'processed_texts', 'original_texts', 'preprocessing_settings', 'preprocessing_metadata',
-        'row_alignment', 'tab_b_complete', 'clustering_results', 'tab_c_complete'
+        'row_alignment', 'tab_preprocessing_complete', 'clustering_results', 'tab_clustering_complete'
     ]
     
     reset_items = []
     for key in downstream_keys:
         if key in st.session_state and st.session_state[key] is not None:
-            if key == 'tab_b_complete' and st.session_state[key]:
+            if key == 'tab_preprocessing_complete' and st.session_state[key]:
                 reset_items.append("preprocessing")
             elif key == 'clustering_results' and st.session_state[key]:
                 reset_items.append("clustering")
@@ -193,7 +193,7 @@ def cascade_from_data_loading():
 
 def cascade_from_preprocessing():
     """Reset downstream steps when preprocessing changes"""
-    downstream_keys = ['clustering_results', 'tab_c_complete']
+    downstream_keys = ['clustering_results', 'tab_clustering_complete']
     
     reset_occurred = False
     for key in downstream_keys:
@@ -254,7 +254,7 @@ def detect_changes_and_cascade():
     
     # Cascade if there are significant changes AND downstream processing exists
     if (significant_changes and 
-        (st.session_state.get('tab_b_complete') or st.session_state.get('clustering_results'))):
+        (st.session_state.get('tab_preprocessing_complete') or st.session_state.get('clustering_results'))):
         cascade_from_data_loading()
     
     # Store current fingerprint
@@ -264,7 +264,7 @@ def check_automatic_completion():
     """Check and auto-complete steps when conditions are met"""
     
     # Auto-complete Data Loading
-    if (not st.session_state.get('tab_a_complete', False) and
+    if (not st.session_state.get('tab_data_loading_complete', False) and
         st.session_state.get('df') is not None and
         st.session_state.get('text_column') is not None and
         st.session_state.get('text_column') != "-- Select a text column --"):
@@ -279,24 +279,24 @@ def check_automatic_completion():
                 )
                 
                 if validation.get('text_column_valid', False):
-                    st.session_state.tab_a_complete = True
+                    st.session_state.tab_data_loading_complete = True
             except Exception:
                 pass  # Skip auto-completion if validation fails
     
     # Auto-complete Preprocessing
-    if (not st.session_state.get('tab_b_complete', False) and
-        st.session_state.get('tab_a_complete', False) and
+    if (not st.session_state.get('tab_preprocessing_complete', False) and
+        st.session_state.get('tab_data_loading_complete', False) and
         st.session_state.get('processed_texts') is not None and
         len(st.session_state.get('processed_texts', [])) >= 10):
         
-        st.session_state.tab_b_complete = True
+        st.session_state.tab_preprocessing_complete = True
     
     # Auto-complete Clustering
-    if (not st.session_state.get('tab_c_complete', False) and
+    if (not st.session_state.get('tab_clustering_complete', False) and
         st.session_state.get('clustering_results') is not None and
         st.session_state.clustering_results.get('success', False)):
         
-        st.session_state.tab_c_complete = True
+        st.session_state.tab_clustering_complete = True
 
 def clear_file_uploader():
     """Clear file uploader state by generating a new key"""
@@ -317,8 +317,8 @@ def reset_file_state():
                 st.session_state[key] = None
     
     # Reset tab completion since file data is cleared
-    if 'tab_a_complete' in st.session_state:
-        st.session_state.tab_a_complete = False
+    if 'tab_data_loading_complete' in st.session_state:
+        st.session_state.tab_data_loading_complete = False
     
     # Set flag to show reset message
     st.session_state.file_uploader_reset = True
@@ -351,8 +351,8 @@ def auto_navigate_to_next_available():
     time.sleep(0.1)
     
     # Log what step we're trying to navigate to (for debugging)
-    data_complete = bool(st.session_state.get('tab_a_complete', False))
-    preprocessing_complete = bool(st.session_state.get('tab_b_complete', False))
+    data_complete = bool(st.session_state.get('tab_data_loading_complete', False))
+    preprocessing_complete = bool(st.session_state.get('tab_preprocessing_complete', False))
     clustering_complete = bool(st.session_state.get('clustering_results') and 
                              st.session_state.clustering_results.get("success", False))
     

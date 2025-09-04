@@ -85,7 +85,7 @@ def show_setup_summary(clustering_results):
                 elif sophistication == 'Low':
                     st.warning("Basic: Using simplified clustering for maximum compatibility")
 
-def tab_c_clustering(backend_available):
+def tab_clustering(backend_available):
     """Tab C: Enhanced Clustering with Progressive Fallback Display"""
     
     # Track tab visit
@@ -98,12 +98,12 @@ def tab_c_clustering(backend_available):
     # Add this at the beginning of tab_c_clustering function, after the track_activity call:
 
     # Check prerequisites first
-    if not st.session_state.get('tab_a_complete', False):
+    if not st.session_state.get('tab_data_loading_complete', False):
         st.error("Please complete Data Loading first!")
         st.info("Go to the Data Loading tab to load and configure your data.")
         return
     
-    if not st.session_state.get('tab_b_complete', False):
+    if not st.session_state.get('tab_preprocessing_complete', False):
         st.error("Please complete Preprocessing first!")
         st.info("Go to the Preprocessing tab to process your text data.")
         return
@@ -291,7 +291,7 @@ def tab_c_clustering(backend_available):
                 # AUTO-NAVIGATE
                 from utils.session_state import auto_navigate_to_next_available
                 auto_navigate_to_next_available()
-                st.session_state.tab_c_complete = True
+                st.session_state.tab_clustering_complete = True
                 
                 # In clustering.py, replace the success section around line 180-190 with:
 

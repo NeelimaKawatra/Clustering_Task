@@ -70,21 +70,21 @@ def initialize_app_with_progress():
         progress_bar.progress(0.75)
         
         try:
-            from frontend.frontend_data_loading import tab_a_data_loading
-            from frontend.frontend_preprocessing import tab_b_preprocessing  
-            from frontend.frontend_clustering import tab_c_clustering
-            from frontend.frontend_results import tab_d_results
-            from frontend.frontend_finetuning import tab_e_finetuning
+            from frontend.frontend_data_loading import tab_data_loading
+            from frontend.frontend_preprocessing import tab_preprocessing  
+            from frontend.frontend_clustering import tab_clustering
+            from frontend.frontend_results import tab_results
+            from frontend.frontend_finetuning import tab_finetuning
             from utils.session_state import initialize_session_state, reset_analysis
             from utils.styles import apply_custom_styles
             
             # Store in session state for reuse
             st.session_state.tab_functions = {
-                'data_loading': tab_a_data_loading,
-                'preprocessing': tab_b_preprocessing,
-                'clustering': tab_c_clustering,
-                'results': tab_d_results,
-                'finetuning': tab_e_finetuning
+                'data_loading': tab_data_loading,
+                'preprocessing': tab_preprocessing,
+                'clustering': tab_clustering,
+                'results': tab_results,
+                'finetuning': tab_finetuning
             }
             st.session_state.initialize_session_state = initialize_session_state
             st.session_state.apply_custom_styles = apply_custom_styles
@@ -149,8 +149,8 @@ def create_sidebar_navigation():
         # st.markdown("---")
         
         # Check completion status
-        data_complete = bool(st.session_state.get('tab_a_complete', False))
-        preprocessing_complete = bool(st.session_state.get('tab_b_complete', False))
+        data_complete = bool(st.session_state.get('tab_data_loading_complete', False))
+        preprocessing_complete = bool(st.session_state.get('tab_preprocessing_complete', False))
         clustering_complete = bool(st.session_state.get('clustering_results') and 
                                  st.session_state.clustering_results.get("success", False))
         
@@ -338,18 +338,18 @@ def render_main_content():
         # Fallback import if not in session state
         # Fallback import if not in session state
         try:
-            from frontend.frontend_data_loading import tab_a_data_loading
-            from frontend.frontend_preprocessing import tab_b_preprocessing
-            from frontend.frontend_clustering import tab_c_clustering
-            from frontend.frontend_results import tab_d_results
-            from frontend.frontend_finetuning import tab_e_finetuning  # ← add this
+            from frontend.frontend_data_loading import tab_data_loading
+            from frontend.frontend_preprocessing import tab_preprocessing
+            from frontend.frontend_clustering import tab_clustering
+            from frontend.frontend_results import tab_results
+            from frontend.frontend_finetuning import tab_finetuning  # ← add this
 
             tab_functions = {
-                'data_loading': tab_a_data_loading,
-                'preprocessing': tab_b_preprocessing,
-                'clustering': tab_c_clustering,
-                'results': tab_d_results,
-                'finetuning': tab_e_finetuning,  # ← and add this
+                'data_loading': tab_data_loading,
+                'preprocessing': tab_preprocessing,
+                'clustering': tab_clustering,
+                'results': tab_results,
+                'finetuning': tab_finetuning,  # ← and add this
             }
         except ImportError as e:
             st.error(f"Failed to import tab functions: {e}")

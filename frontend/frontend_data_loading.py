@@ -30,7 +30,7 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
         new_selection != current_selection and
         current_selection not in prompt_values.get(selection_type, []) and
         new_selection not in prompt_values.get(selection_type, []) and
-        (st.session_state.get('tab_b_complete') or st.session_state.get('clustering_results'))
+        (st.session_state.get('tab_preprocessing_complete') or st.session_state.get('clustering_results'))
     )
     
     if is_meaningful_change:
@@ -41,7 +41,7 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
             reset_items = []
             if st.session_state.get('clustering_results'):
                 reset_items.append("🔍 Clustering results")
-            if st.session_state.get('tab_b_complete'):
+            if st.session_state.get('tab_preprocessing_complete'):
                 reset_items.append("🧹 Text preprocessing")
             
             if reset_items:
@@ -58,8 +58,8 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
         # Mark that changes were made
         st.session_state.data_loading_changes_made = True
 
-def tab_a_data_loading(backend_available):
-    """Tab A: Data Loading with persistent selections and smart change detection"""
+def tab_data_loading(backend_available):
+    """Tab: Data Loading with persistent selections and smart change detection"""
     
     # Track tab visit
     if backend_available:
@@ -135,7 +135,7 @@ def tab_a_data_loading(backend_available):
             # Store dataframe
             st.session_state.df = df
             st.session_state.previous_file_key = current_file_key
-            st.session_state.tab_a_complete = False
+            st.session_state.tab_data_loading_complete = False
             
             st.success(f"{message}")
             #st.balloons()
@@ -520,9 +520,9 @@ def tab_a_data_loading(backend_available):
             st.markdown("<br>", unsafe_allow_html=True)
             
             # Check if step should auto-complete
-            if not st.session_state.get('tab_a_complete', False):
+            if not st.session_state.get('tab_data_loading_complete', False):
                 # Auto-complete when validation passes
-                st.session_state.tab_a_complete = True
+                st.session_state.tab_data_loading_complete = True
 
             
                 
@@ -587,12 +587,12 @@ def tab_a_data_loading(backend_available):
             """)
             
             # Reset completion if validation fails
-            if st.session_state.get('tab_a_complete', False):
-                st.session_state.tab_a_complete = False
+            if st.session_state.get('tab_data_loading_complete', False):
+                st.session_state.tab_data_loading_complete = False
                 st.rerun()
 
             # In your data loading tab, when completion happens:
-            st.session_state.tab_a_complete = True
+            st.session_state.tab_data_loading_complete = True
             from utils.session_state import auto_navigate_to_next_available
             auto_navigate_to_next_available()
             st.rerun()

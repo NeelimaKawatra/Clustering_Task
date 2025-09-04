@@ -183,11 +183,11 @@ def check_session_state_health():
             issues.append(f"Selected text column '{text_col}' not found in data")
     
     # Check completion status consistency
-    if st.session_state.get('tab_b_complete') and not st.session_state.get('tab_a_complete'):
-        issues.append("Tab B marked complete but Tab A is not")
+    if st.session_state.get('tab_preprocessing_complete') and not st.session_state.get('tab_data_loading_complete'):
+        issues.append("Tab preprocessing marked complete but Tab data_loading is not")
     
-    if st.session_state.get('tab_c_complete') and not st.session_state.get('tab_b_complete'):
-        issues.append("Tab C marked complete but Tab B is not")
+    if st.session_state.get('tab_clustering_complete') and not st.session_state.get('tab_preprocessing_complete'):
+        issues.append("Tab clustering marked complete but Tab preprocessing is not")
     
     return issues
 
@@ -199,9 +199,9 @@ def log_session_state_debug():
         "text_column": st.session_state.get('text_column'),
         "id_column": st.session_state.get('respondent_id_column'),
         "tab_completions": {
-            "a": st.session_state.get('tab_a_complete', False),
-            "b": st.session_state.get('tab_b_complete', False),
-            "c": st.session_state.get('tab_c_complete', False),
+            "a": st.session_state.get('tab_data_loading_complete', False),
+            "b": st.session_state.get('tab_preprocessing_complete', False),
+            "c": st.session_state.get('tab_clustering_complete', False),
         },
         "processed_texts_count": len(st.session_state.get('processed_texts', [])),
         "clustering_success": bool(st.session_state.get('clustering_results', {}).get('success', False)),
