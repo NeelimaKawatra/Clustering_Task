@@ -51,7 +51,7 @@ def tab_preprocessing(backend_available):
     with st.expander("Understanding Preprocessing Options"):
         st.write("- **No Preprocessing**: Use your text exactly as uploaded")
         st.write("- **Basic Preprocessing**: Remove URLs, emails, normalize whitespace") 
-        st.write("- **Advanced Preprocessing**: Basic + remove stopwords, punctuation, numbers")
+        st.write("- **Advanced Preprocessing**: Basic Preprocessing + remove stopwords, punctuation, numbers")
         st.write("- **Custom Preprocessing**: Choose specific settings")
 
     preprocessing_option = st.radio(
@@ -179,17 +179,6 @@ def show_processing_results():
         else:
             st.warning("No valid comparisons to show")
 
-        """ st.table to left align the text
-        def show_comparisons(df, align="left"):
-            assert align in ("left", "center")
-            styler = (
-                df.style
-                .set_properties(**{"text-align": align})
-                .set_table_styles([{"selector": "th", "props": [("text-align", align)]}])
-            )
-            st.table(styler)
-        show_comparisons(comparison_df, align="left") 
-        """
 
 
     # Quality check and completion

@@ -131,23 +131,21 @@ def tab_results(backend_available):
 
     # Get the appropriate dataframe
     if export_view == "Summary View (Essential columns only)":
-        # Create summary export
-        results_df = st.session_state.backend.create_summary_export(
+        # Create summary-view export
+        results_df = st.session_state.backend.create_essential_export(
             results,
             st.session_state.df,
             st.session_state.text_column,
-            st.session_state.subjectID,
             st.session_state.session_id
         )
         export_type = "summary"
         filename_suffix = "_summary"
     else:
-        # Create detailed export
-        results_df = st.session_state.backend.export_results(
+        # Create detailed-view export
+        results_df = st.session_state.backend.create_detailed_export(
             results,
             st.session_state.df,
             st.session_state.text_column,
-            st.session_state.subjectID,
             st.session_state.session_id
         )
         export_type = "detailed"
@@ -155,41 +153,35 @@ def tab_results(backend_available):
 
     # Show preview of selected export
     st.write(f"**Preview of {export_type} export data:**")
-    st.dataframe(results_df.head(10), use_container_width=True)
-    st.caption(f"Showing first 10 rows of {len(results_df)} total rows")
+    st.dataframe(results_df, use_container_width=True, hide_index=True, height=400)
 
     # Show column information
-    with st.expander("Column Information"):
+    with st.expander("Results Columns Information"):
         if export_type == "summary":
-            st.write("**Summary Export Columns:**")
-            for col in results_df.columns:
-                if col == 'auto_generated_id':
-                    st.write(f"• **{col}**: System-generated unique identifier")
-                elif col.startswith('user_id_'):
-                    st.write(f"• **{col}**: Your original ID column")
-                elif col.startswith('original_'):
-                    st.write(f"• **{col}**: Your original text data")
-                elif col == 'cluster_id':
-                    st.write(f"• **{col}**: Assigned cluster number (-1 = outlier)")
-                elif col == 'confidence_score':
-                    st.write(f"• **{col}**: Clustering confidence (0-1)")
-                elif col == 'confidence_level':
-                    st.write(f"• **{col}**: High/Medium/Low confidence category")
-                elif col == 'cluster_label':
-                    st.write(f"• **{col}**: Descriptive cluster name based on keywords")
+            st.write("**Summary View Columns:**")
+            st.write("• entryID: Unique row identifier from dataset")
+            st.write("• original_text: Raw text from dataset")
+            st.write("• cluster_id: Assigned cluster number (-1 = outlier)")
+            st.write("• cluster_label: Descriptive cluster name based on keywords")
         else:
-            st.write("**Detailed Export includes all columns:**")
-            st.write("• All summary columns (above)")
-            st.write("• **processed_text**: Cleaned text used for clustering")
-            st.write("• Additional metadata columns")
+            st.write("**Detailed Export Columns:**")
+            st.write("• entryID: Unique row identifier from dataset")
+            st.write("• subjectID: Subject identifier chosen by user")
+            st.write("• original_text: Raw text from dataset")
+            st.write("• preprocessed_text: Text after preprocessing steps")
+            st.write("• cluster_id: Assigned cluster number (-1 = outlier)")
+            st.write("• cluster_label: Descriptive cluster name based on keywords")
+            st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
+            st.write("• confidence_level: High, Medium, or Low based on confidence score")
+
 
     # Export buttons
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         csv_data = results_df.to_csv(index=False)
         if st.download_button(
-            f"Download {export_type.title()} CSV",
+            f"Download {export_type.title()} Results CSV",
             csv_data,
             f"clustering_results{filename_suffix}.csv",
             "text/csv",
@@ -202,7 +194,7 @@ def tab_results(backend_available):
             })
 
     with col2:
-        # Summary report
+        # generate a clustery report
         summary_report = st.session_state.backend.create_summary_report(
             results,
             st.session_state.preprocessing_settings,
@@ -210,7 +202,7 @@ def tab_results(backend_available):
         )
         
         if st.download_button(
-            "Download Summary Report",
+            "Download Clustery Report",
             summary_report,
             "clustering_summary.txt",
             "text/plain",

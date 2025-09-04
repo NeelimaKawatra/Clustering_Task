@@ -23,9 +23,9 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
     
     # Define what constitutes a meaningful change
     prompt_values = {
-        "id_column_prompt": ["-- Select any column --", None, "Auto-generate IDs"],
-        "text_column_prompt": ["-- Select a text column for clustering --", None]
-    }
+        "ID": ["-- Select a subject ID column--", None, "use entryID (row numbers) as subject IDs", "entryID"],
+        "text": ["-- Select a text column --", None]
+        }
     
     # Check if this is a meaningful change
     is_meaningful_change = (
@@ -223,19 +223,14 @@ def tab_data_loading(backend_available):
         # Initialize the stats dictionary with each column
         for col in df.columns:
             total_rows = len(df)
-            #empty_rows = int(df[col].isna().sum() + (df[col] == '').sum())
-
             empty_rows = int(df[col].isna().sum())
             if is_object_dtype(df[col]) or is_string_dtype(df[col]):
                 empty_rows += int((df[col] == '').sum())
             non_empty_rows = int(len(df) - empty_rows)
-
-
-            #non_empty_rows = int(total_rows - empty_rows)
             
             # calcualte column type (special handling for entryID column)
             if col == 'entryID':
-                col_type = 'Entry ID (Auto-generated)'
+                col_type = '(Auto-generated)'
             else:
                 is_text_like = is_object_dtype(df[col]) or is_string_dtype(df[col])
                 col_type = 'Text' if is_text_like else 'Non-Text'
@@ -261,7 +256,7 @@ def tab_data_loading(backend_available):
 
     # subject id column selection
     st.markdown("**Step 1: Choose a column for subject identification**")
-    auto_option = " use entryID (row numbers) as subject IDs"
+    auto_option = "use entryID (row numbers) as subject IDs"
     prompt_option = "-- Select a subject ID column--"
 
     # Include entryID as a selectable option
@@ -343,7 +338,7 @@ def tab_data_loading(backend_available):
     
 
     # Text Column Section with Enhanced Change Detection
-    st.markdown("**Step 2: Choose a Text Column for Clustering**")
+    st.markdown("**Step 2: Choose a Column for text clustering**")
     prompt_option_text = "-- Select a text column --"
     
     # Get text column suggestions first to filter options
@@ -351,15 +346,12 @@ def tab_data_loading(backend_available):
     if backend_available:
         try:
             text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
+            # minimal sanity filter: must exist in df and not be entryID
+            text_columns = [c for c in text_columns if c in df.columns and c != 'entryID']
         except AttributeError:
             # Simple fallback - check for text-like columns, excluding entryID
             text_columns = [col for col in df.columns
                             if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))]
-    else:
-        # Fallback when backend not available, excluding entryID
-        text_columns = [col for col in df.columns
-                if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))]
-
     
     # Create filtered options - only show text columns plus prompt
     text_options = [prompt_option_text] + text_columns
@@ -401,7 +393,7 @@ def tab_data_loading(backend_available):
             'id_column_choice': selected_id,
             'text_column_choice': selected_text_column,
             'id_is_auto_generated': selected_id == "entryID", 
-            'subjectID': selected_id,
+            #'subjectID': selected_id,
             'original_columns': [selected_id, selected_text_column] if selected_id != 'entryID' else [selected_text_column]
         })
 
@@ -444,6 +436,13 @@ def tab_data_loading(backend_available):
             
             # Show text quality metrics in an attractive layout
             stats = validation_result["text_quality"]
+
+            # 🔒 force numeric types (backend may return strings)
+            _total = int(stats.get('total_texts', 0))
+            _empty = int(stats.get('empty_texts', 0))
+            _avg_len = float(stats.get('avg_length', 0))
+            _avg_words = float(stats.get('avg_words', 0))
+            _unique = int(stats.get('unique_texts', 0))
             
             st.markdown("**Text Quality Metrics**")
             quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
@@ -451,25 +450,25 @@ def tab_data_loading(backend_available):
             with quality_col1:
                 st.metric(
                     "Valid Texts", 
-                    stats['total_texts'] - stats['empty_texts'],
-                    delta=f"of {stats['total_texts']} total"
+                    _total - _empty,
+                    delta=f"of {_total} total"
                 )
             with quality_col2:
                 st.metric(
                     "Avg Length", 
-                    f"{stats['avg_length']:.0f} chars",
-                    delta=f"Sample size: {stats['sample_size']}"
+                    f"{_avg_len:.0f} chars",
+                    delta=f"Sample size: {int(stats.get('sample_size', 0))}"
                 )
             with quality_col3:
                 st.metric(
                     "Avg Words", 
-                    f"{stats['avg_words']:.1f}",
+                    f"{_avg_words:.1f}",
                     delta=f"Sample analysis"
                 )
             with quality_col4:
                 st.metric(
                     "Unique Texts", 
-                    stats['unique_texts'],
+                    _unique,
                     delta=f"No duplicates/NA"
                 )
             
@@ -508,8 +507,8 @@ def tab_data_loading(backend_available):
             with summary_col1:
                 st.markdown("**Data Summary:**")
                 st.write(f"• **Total rows:** {len(df):,}")
-                st.write(f"• **Valid texts:** {stats['total_texts'] - stats['empty_texts']:,}")
-                st.write(f"• **Data quality:** {'Excellent' if stats['avg_length'] > 50 else 'Good' if stats['avg_length'] > 20 else 'Fair'}")
+                st.write(f"• **Valid texts:** {_total - _empty:,}")
+                st.write(f"• **Data quality:** {'Excellent' if _avg_len > 50 else 'Good' if _avg_len > 20 else 'Fair'}")
             
             with summary_col3:
                 st.markdown("**Text Configuration:**")
@@ -528,8 +527,6 @@ def tab_data_loading(backend_available):
                         st.write(f"• **Column:** {selected_id}")
                         col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[selected_id]) else 'Text'
                         st.write(f"• **Type:** {col_type}")
-                        #st.write(f"• **Status:** {id_analysis['status'].title()}")
-                        #st.write(f"• **Unique:** {id_analysis['unique']:,} IDs")
                 else:
                     st.write("• **Type:** Auto-generated")
                     st.write("• **Format:** ID_001, ID_002...")
@@ -605,13 +602,19 @@ def tab_data_loading(backend_available):
             - Look for columns with survey responses, comments, or descriptions
             """)
             
+
+            """ old code
             # Reset completion if validation fails
             if st.session_state.get('tab_data_loading_complete', False):
                 st.session_state.tab_data_loading_complete = False
                 st.rerun()
-
+            
             # In your data loading tab, when completion happens:
             st.session_state.tab_data_loading_complete = True
             from utils.session_state import auto_navigate_to_next_available
             auto_navigate_to_next_available()
             st.rerun()
+            """
+            #If it was previously complete, mark incomplete and stop here
+            if st.session_state.get('tab_data_loading_complete', False):
+                st.session_state.tab_data_loading_complete = False

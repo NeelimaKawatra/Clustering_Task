@@ -1,10 +1,6 @@
 # main.py - Fixed Clustery Application
 import streamlit as st
-import pandas as pd
-import os
 import time
-from collections import Counter
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -390,6 +386,7 @@ def render_main_content():
             
     except Exception as e:
         st.error(f"Error rendering {current_page}: {e}")
+        st.exception(e)
         st.info("Try refreshing the page or restarting the analysis.")
 
 def main():

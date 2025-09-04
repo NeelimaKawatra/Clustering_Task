@@ -118,6 +118,9 @@ class DataLoadingBackend:
     def get_text_column_suggestions(self, df: pd.DataFrame, session_id: str) -> List[str]:
         cols = []
         for col in df.columns:
+            # skips entryID and numeric columns
+            if col == "entryID" or ptypes.is_numeric_dtype(df[col]):
+                continue
             ok, _ = self.text_processor.validate_text_column(df[col])
             if ok:
                 cols.append(col)

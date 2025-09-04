@@ -24,12 +24,8 @@ def initialize_session_state(backend_available=True):
     
     # Column selections - FIXED: Preserve existing selections
     
-    if 'respondent_id_column' not in st.session_state:
-        st.session_state.respondent_id_column = "-- Select an ID column --"
-    
-
     if 'subjectID' not in st.session_state:
-        st.session_state.subjectID = "-- Select an ID column --"
+        st.session_state.subjectID = "-- Select a subject ID column--"
     
     if 'text_column' not in st.session_state:
         st.session_state.text_column = "-- Select a text column --"
@@ -228,8 +224,7 @@ def detect_changes_and_cascade():
         'file_key': st.session_state.get('previous_file_key'),
         'df_shape': tuple(st.session_state.df.shape) if st.session_state.get('df') is not None else None,
         'text_column': st.session_state.get('text_column'),
-        'id_column': st.session_state.get('respondent_id_column'),
-        'subjectID': st.session_state.get('subjectID')
+        'id_column': st.session_state.get('subjectID')
     }
     
     previous_fingerprint = st.session_state.state_fingerprints.get('last_known', {})
@@ -254,10 +249,10 @@ def detect_changes_and_cascade():
         current_fingerprint.get('text_column') not in ["-- Select a text column --", None]):
         significant_changes.append("text_column")
     
+    # treat changes between real selections as significant (ignore prompts/None)
     if (current_fingerprint.get('id_column') != previous_fingerprint.get('id_column') and
-        previous_fingerprint.get('id_column') is not None and
-        previous_fingerprint.get('id_column') not in ["-- Select an ID column --", None, "Auto-generate IDs"] and
-        current_fingerprint.get('id_column') not in ["-- Select an ID column --", None, "Auto-generate IDs"]):
+        previous_fingerprint.get('id_column') not in [None, "-- Select a subject ID column--"] and
+        current_fingerprint.get('id_column') not in [None, "-- Select a subject ID column--"]):
         significant_changes.append("id_column")
     
     # Cascade if there are significant changes AND downstream processing exists

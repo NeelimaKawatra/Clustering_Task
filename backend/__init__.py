@@ -42,11 +42,16 @@ class ClusteryBackend:
         })
 
     def track_activity(self, session_id: str, activity_type: str, data: Dict[str, Any]):
+        # In-memory (can keep datetime), but logger needs JSON-safe payloads
+        now = datetime.now()
         if session_id in self.session_data:
             self.session_data[session_id]["activities"].append({
-                "type": activity_type, "data": data, "timestamp": datetime.now()
+                "type": activity_type,
+                "data": data,
+                "timestamp": now
             })
-        self.logger.log_activity(activity_type, session_id, data)
+        safe_details = {"timestamp": now.isoformat(), **data}
+        self.logger.log_activity(activity_type, session_id, safe_details)
 
     # ----- Data loading -----
     def load_data(self, file_path: str, session_id: str):
@@ -85,14 +90,18 @@ class ClusteryBackend:
         return self.clustering.get_cluster_details(results, session_id)
 
     # ----- Results / Export -----
-    def export_results(self, clustering_results, original_data, text_column, id_column=None, session_id: str = ""):
-        df = self.results.export_results(clustering_results, original_data, text_column, id_column, session_id)
+    def export_results(self, clustering_results, original_data, text_column, session_id: str = ""):
+        df = self.results.export_results(clustering_results, original_data, text_column, session_id)
         if session_id in self.session_data:
             self.session_data[session_id]["results_exported"] = True
         return df
 
-    def create_summary_export(self, clustering_results, original_data, text_column, id_column=None, session_id: str = ""):
-        return self.results.create_summary_export(clustering_results, original_data, text_column, id_column, session_id)
+    def create_essential_export(self, clustering_results, original_data, text_column, session_id: str = ""):
+        return self.results.create_essential_export(clustering_results, original_data, text_column, session_id)
+
+    def create_detailed_export(self, clustering_results, original_data, text_column, session_id: str = ""):
+        return self.results.create_detailed_export(clustering_results, original_data, text_column, session_id)
+
 
     def create_summary_report(self, clustering_results, preprocessing_info, session_id: str = ""):
         return self.results.create_summary_report(clustering_results, preprocessing_info, session_id)

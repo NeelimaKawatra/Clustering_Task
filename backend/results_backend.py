@@ -8,7 +8,7 @@ class ResultsBackend:
         self.logger = logger
 
     def export_results(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
-                       text_column: str, id_column: str | None = None, session_id: str = "") -> pd.DataFrame:
+                       text_column: str, session_id: str = "") -> pd.DataFrame:
         if not clustering_results.get("success"):
             raise ValueError("Cannot export unsuccessful clustering results")
 
@@ -29,18 +29,26 @@ class ResultsBackend:
             oidx = row_alignment[pidx] if pidx < len(row_alignment) else pidx
             row: Dict[str, Any] = {}
 
-            row['auto_generated_id'] = clean_ids[oidx] if oidx < len(clean_ids) else f"ID_{oidx+1:03d}"
+            # Use entryID from df; keep numeric type if available
+            row['entryID'] = (
+                original_data['entryID'].iloc[oidx]
+                if 'entryID' in original_data.columns else (oidx + 1)
+            )
 
-            if not user_sel.get('id_is_auto_generated', True):
-                uid_col = user_sel.get('id_column_choice')
-                if uid_col and uid_col in original_data.columns:
-                    row[f'user_id_{uid_col}'] = str(original_data[uid_col].iloc[oidx]) if oidx < len(original_data) else "N/A"
+            # Stable subjectID (preferred user-selected column, else entryID)
+            uid_col = user_sel.get('id_column_choice')
+            if (not user_sel.get('id_is_auto_generated', True)) and uid_col and uid_col in original_data.columns:
+                row['subjectID'] = original_data[uid_col].iloc[oidx]
+            else:
+                row['subjectID'] = row['entryID']
 
             user_text_col = user_sel.get('text_column_choice', text_column)
+
+            # Store original text under a fixed column name
             if oidx < len(original_texts):
-                row[f'original_{user_text_col}'] = original_texts[oidx]
+                row['original_text'] = original_texts[oidx]
             else:
-                row[f'original_{user_text_col}'] = "N/A"
+                row['original_text'] = str(original_data[user_text_col].iloc[oidx]) if user_text_col in original_data.columns else "N/A"
 
             row['processed_text'] = ptxt
             row['cluster_id'] = topic
@@ -61,27 +69,35 @@ class ResultsBackend:
         for oidx in range(total_original):
             if oidx not in processed_oidx:
                 row: Dict[str, Any] = {}
-                row['auto_generated_id'] = clean_ids[oidx] if oidx < len(clean_ids) else f"ID_{oidx+1:03d}"
-                if not user_sel.get('id_is_auto_generated', True):
-                    uid_col = user_sel.get('id_column_choice')
-                    if uid_col and uid_col in original_data.columns:
-                        row[f'user_id_{uid_col}'] = str(original_data[uid_col].iloc[oidx])
+                row['entryID'] = (
+                    original_data['entryID'].iloc[oidx]
+                    if 'entryID' in original_data.columns else (oidx + 1)
+                )
+                uid_col = user_sel.get('id_column_choice')
+                if (not user_sel.get('id_is_auto_generated', True)) and uid_col and uid_col in original_data.columns:
+                    row['subjectID'] = original_data[uid_col].iloc[oidx]
+                else:
+                    row['subjectID'] = row['entryID']
 
                 user_text_col = user_sel.get('text_column_choice', text_column)
-                if oidx < len(original_texts):
-                    row[f'original_{user_text_col}'] = original_texts[oidx]
-                else:
-                    row[f'original_{user_text_col}'] = str(original_data[user_text_col].iloc[oidx])
 
-                row['processed_text'] = "[FILTERED OUT - empty or too short]"
+                if oidx < len(original_texts):
+                    row['original_text'] = original_texts[oidx]
+                else:
+                    row['original_text'] = str(original_data[user_text_col].iloc[oidx]) if user_text_col in original_data.columns else "N/A"
+
+                row['processed_text'] = None
                 row['cluster_id'] = None
                 row['confidence_score'] = None
-                row['confidence_level'] = "Not Clustered"
-                row['cluster_label'] = "not_clustered"
+                row['confidence_level'] = None
+                row['cluster_label'] = None
                 out_rows.append(row)
 
-        out_rows.sort(key=lambda r: r['auto_generated_id'])
         df = pd.DataFrame(out_rows)
+    
+        df['entryID'] = pd.to_numeric(df['entryID'], errors='coerce')
+        df = df.sort_values('entryID', kind='stable').reset_index(drop=True)
+        df['entryID'] = df['entryID'].astype('Int64')
 
         self.logger.log_activity("export_results", session_id, {
             "total_rows": len(df),
@@ -90,14 +106,28 @@ class ResultsBackend:
         })
         return df
 
-    def create_summary_export(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
-                              text_column: str, id_column: str | None = None, session_id: str = "") -> pd.DataFrame:
-        detailed = self.export_results(clustering_results, original_data, text_column, id_column, session_id)
-        cols = ['auto_generated_id']
-        cols += [c for c in detailed.columns if c.startswith('user_id_')]
-        cols += [c for c in detailed.columns if c.startswith('original_')]
-        cols += ['cluster_id', 'confidence_score', 'confidence_level', 'cluster_label']
-        cols = [c for c in cols if c in detailed.columns]
+    def create_essential_export(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
+                              text_column: str, session_id: str = "") -> pd.DataFrame:
+        # Build a minimal, Arrow-friendly summary with exactly four columns
+        detailed = self.export_results(clustering_results, original_data, text_column, session_id)
+        cols = ['entryID', 'original_text', 'cluster_id', 'cluster_label']
+        # keep only the requested columns (in order)
+        return detailed[cols].copy()
+
+    def create_detailed_export(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
+                               text_column: str, session_id: str = "") -> pd.DataFrame:
+        # Build a detailed export with all relevant columns
+        detailed = self.export_results(clustering_results, original_data, text_column, session_id)
+        cols = [
+            'entryID',
+            'subjectID',
+            'original_text',
+            'processed_text',
+            'cluster_id',
+            'cluster_label',
+            'confidence_score',
+            'confidence_level',
+        ]
         return detailed[cols].copy()
 
     def create_summary_report(self, clustering_results: Dict[str, Any],
