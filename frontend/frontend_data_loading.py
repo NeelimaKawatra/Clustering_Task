@@ -5,6 +5,8 @@ import re
 from utils.helpers import get_file_from_upload
 from utils.session_state import reset_analysis
 import pandas as pd
+from pandas.api.types import is_object_dtype, is_string_dtype
+
 
 def get_safe_index(options_list, value, default=0):
     """Safely get index of value in list, return default if not found"""
@@ -199,10 +201,11 @@ def tab_data_loading(backend_available):
     with metric_col3:
         st.metric("Total Columns", len(df.columns))
     with metric_col4:
-        # Count text columns - object dtype columns that aren't entryID
-        text_cols = sum(1 for col in df.columns 
-                       if col != 'entryID' and df[col].dtype == 'object')
-        st.metric("Text Columns", text_cols)
+        # Count text-like columns excluding entryID
+        text_cols = sum(1 for col in df.columns
+                        if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))
+                    )
+        st.metric("Total Text Columns", text_cols)
     
     
     # Data Overview Section
@@ -210,7 +213,6 @@ def tab_data_loading(backend_available):
         st.markdown("**Your Loaded Data (first 300 rows):**")
         cols = ['entryID'] + [c for c in df.columns if c != 'entryID']
         st.dataframe(df[cols], use_container_width=True, hide_index=True)
-
 
         # Column Statistics
         st.markdown("**Column Statistics:**")
@@ -221,15 +223,24 @@ def tab_data_loading(backend_available):
         # Initialize the stats dictionary with each column
         for col in df.columns:
             total_rows = len(df)
-            empty_rows = int(df[col].isna().sum() + (df[col] == '').sum())
-            non_empty_rows = int(total_rows - empty_rows)
+            #empty_rows = int(df[col].isna().sum() + (df[col] == '').sum())
+
+            empty_rows = int(df[col].isna().sum())
+            if is_object_dtype(df[col]) or is_string_dtype(df[col]):
+                empty_rows += int((df[col] == '').sum())
+            non_empty_rows = int(len(df) - empty_rows)
+
+
+            #non_empty_rows = int(total_rows - empty_rows)
             
-            # Special handling for entryID column
+            # calcualte column type (special handling for entryID column)
             if col == 'entryID':
                 col_type = 'Entry ID (Auto-generated)'
             else:
-                col_type = 'Text' if df[col].dtype == 'object' else 'Non-Text'
-            
+                is_text_like = is_object_dtype(df[col]) or is_string_dtype(df[col])
+                col_type = 'Text' if is_text_like else 'Non-Text'
+
+
             stats_data[col] = {
                 'Total Rows': total_rows,
                 'Empty Rows': empty_rows,
@@ -237,10 +248,12 @@ def tab_data_loading(backend_available):
                 'Column Type': col_type
             }
         
-        # Create DataFrame with metrics as index and columns as columns
-        stats_df = pd.DataFrame(stats_data)
+        # display the column stats (entryID first, then the rest)
+        ordered_cols = ['entryID'] + [c for c in stats_data.keys() if c != 'entryID']
+        stats_df = pd.DataFrame(stats_data)[ordered_cols]
+
         st.dataframe(stats_df, use_container_width=True)
-    
+
 
 
     # Column Selection Section
@@ -340,10 +353,13 @@ def tab_data_loading(backend_available):
             text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
         except AttributeError:
             # Simple fallback - check for text-like columns, excluding entryID
-            text_columns = [col for col in df.columns if pd.api.types.is_object_dtype(df[col]) and col != 'entryID']
+            text_columns = [col for col in df.columns
+                            if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))]
     else:
         # Fallback when backend not available, excluding entryID
-        text_columns = [col for col in df.columns if pd.api.types.is_object_dtype(df[col]) and col != 'entryID']
+        text_columns = [col for col in df.columns
+                if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))]
+
     
     # Create filtered options - only show text columns plus prompt
     text_options = [prompt_option_text] + text_columns
