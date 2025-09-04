@@ -2,6 +2,7 @@
 import streamlit as st
 import time
 
+
 def initialize_session_state(backend_available=True):
     """Initialize all session state variables with proper defaults"""
     

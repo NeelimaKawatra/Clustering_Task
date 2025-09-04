@@ -3,11 +3,11 @@
 Tab modules for Clustery application with sidebar navigation support
 """
 
-from .data_loading import tab_a_data_loading
-from .preprocessing import tab_b_preprocessing
-from .clustering import tab_c_clustering
-from .results import tab_d_results
-from .finetuning import tab_e_finetuning
+from .frontend_data_loading import tab_a_data_loading
+from .frontend_preprocessing import tab_b_preprocessing
+from .frontend_clustering import tab_c_clustering
+from .frontend_results import tab_d_results
+from .frontend_finetuning import tab_e_finetuning
 
 # Navigation helper functions
 def get_tab_status():
