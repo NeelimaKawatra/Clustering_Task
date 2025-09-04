@@ -249,7 +249,7 @@ def tab_data_loading(backend_available):
     # subject id column selection
     st.markdown("**Step 1: Choose a column for subject identification**")
     auto_option = "entryID (row numbers)"
-    prompt_option = "-- Select a column for ID --"
+    prompt_option = "-- Select a subject ID column--"
     # Include entryID as a selectable option
     available_columns = [col for col in df.columns if col != 'entryID']
     id_options = [prompt_option, auto_option] + available_columns
@@ -260,7 +260,7 @@ def tab_data_loading(backend_available):
         return
     
     # Preserve existing selection when navigating between tabs
-    current_id_selection = st.session_state.get('respondent_id_column', prompt_option)
+    current_id_selection = st.session_state.get('subjectID', prompt_option)
     
     # Only reset to prompt if we're in a fresh state (no previous selection made)
     if current_id_selection is None:
@@ -296,7 +296,7 @@ def tab_data_loading(backend_available):
     # Save the user's subject ID choice
     #st.session_state.respondent_id_column = selected_id
     st.session_state.subjectID = selected_id
-    
+
     # Info banner
     if selected_id == auto_option:
         st.info("Using entryID (row numbers) as subject identifiers.")

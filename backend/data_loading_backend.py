@@ -50,7 +50,7 @@ class DataLoadingBackend:
                 "columns": len(df.columns),
                 "memory_usage_kb": float(df.memory_usage(deep=True).sum()) / 1024.0
             })
-            return True, df, f"File loaded successfully: {len(df)} rows, {len(df.columns)} columns"
+            return True, df, f"File loaded successfully"
 
         except Exception as e:
             msg = f"Error loading file: {e}"

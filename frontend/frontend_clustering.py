@@ -120,14 +120,16 @@ def tab_clustering(backend_available):
    
     
     texts = st.session_state.processed_texts
-    st.success(f"Ready to cluster {len(texts)} processed texts")
+    st.success(f"Ready to cluster {len(texts)} preprocessed texts")
     
+    """old code (Show Preprocessing Summary)
     # Show preprocessing summary
     with st.expander("Preprocessing Summary"):
         settings = st.session_state.preprocessing_settings
         st.write(f"**Method:** {settings['method']}")
         st.write(f"**Details:** {settings['details']}")
         st.write(f"**Texts ready:** {len(texts)}")
+    """
     
     # Show clustering approach information
     show_clustering_approach_info()

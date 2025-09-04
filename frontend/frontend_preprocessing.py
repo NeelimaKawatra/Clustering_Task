@@ -45,7 +45,7 @@ def tab_preprocessing(backend_available):
         recommendations = {'suggested_method': 'basic'}
 
     # Show current data status
-    st.info(f"Ready to process {len(original_texts)} texts from your data")
+    st.info(f"Ready to preprocess {len(original_texts)} texts from your data")
 
     # Preprocessing options
     with st.expander("Understanding Preprocessing Options"):
@@ -127,7 +127,7 @@ def show_processing_results():
     original_texts = st.session_state.original_texts
     row_alignment = st.session_state.get('row_alignment', [])
     
-    st.subheader("Processing Results")
+    st.subheader("Preprocessing Results")
     
     # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -216,6 +216,7 @@ def show_processing_results():
         
         st.info("Proceed to the **Clustering** tab to analyze your preprocessed texts.")
         
+        """old code (button "Redo Preprocessing with Different Settings")
         # Option to reprocess
         if st.button("Redo Preprocessing with Different Settings"):
             # Clear preprocessing results
@@ -227,7 +228,7 @@ def show_processing_results():
             from utils.session_state import cascade_from_preprocessing
             cascade_from_preprocessing()
             st.rerun()
-            
+        """
     else:
         st.error(f"Need at least 10 valid texts for clustering. Current: {len(processed_texts)}")
         st.info("Try using less aggressive preprocessing settings or check your data quality.")

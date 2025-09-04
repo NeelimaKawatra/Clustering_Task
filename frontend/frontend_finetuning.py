@@ -51,7 +51,7 @@ def tab_finetuning(backend_available: bool):
     show_entry_management_interface(backend)
 
     # Export
-    show_export_interface(backend)
+    #show_export_interface(backend)
 
     # Optional: tiny AI helper panel (uses the wrapper in this file)
     with st.expander("🤖 AI Assist (optional)"):
