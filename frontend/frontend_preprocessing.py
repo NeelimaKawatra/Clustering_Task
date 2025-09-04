@@ -160,8 +160,13 @@ def show_processing_results():
                 
                 # Only include non-empty texts
                 if original_text.strip() and processed_text.strip():
+                    # Get the actual subject ID value from df using the selected ID column
+                    df = st.session_state.df
+                    subject_id_column = st.session_state.subjectID
+                    actual_subject_id = df.iloc[original_idx][subject_id_column] if original_idx < len(df) else f"Row_{original_idx}"
+                    
                     comparison_data.append({
-                        'Row': original_idx + 1,
+                        'Subject ID': actual_subject_id,
                         'Original Text': original_text,
                         'Processed Text': processed_text
                     })

@@ -23,8 +23,13 @@ def initialize_session_state(backend_available=True):
         }
     
     # Column selections - FIXED: Preserve existing selections
+    
     if 'respondent_id_column' not in st.session_state:
         st.session_state.respondent_id_column = "-- Select an ID column --"
+    
+
+    if 'subjectID' not in st.session_state:
+        st.session_state.subjectID = "-- Select an ID column --"
     
     if 'text_column' not in st.session_state:
         st.session_state.text_column = "-- Select a text column --"
@@ -104,7 +109,7 @@ def reset_analysis():
     
     # Keys to completely reset (including column selections)
     keys_to_reset = [
-        'df', 'clean_ids', 'original_texts', 'processed_texts',
+        'df', 'original_texts', 'processed_texts',
         'preprocessing_metadata', 'preprocessing_settings', 'row_alignment',
         'clustering_results', 'tab_data_loading_complete', 'tab_preprocessing_complete',
         'tab_clustering_complete', 'previous_file_key', 'state_fingerprints'
@@ -112,7 +117,7 @@ def reset_analysis():
     
     # FIXED: Also reset column selections when doing full analysis reset
     column_selection_keys = [
-        'respondent_id_column', 'text_column', 'user_selections'
+        'respondent_id_column', 'subjectID', 'text_column', 'user_selections'
     ]
     
     # Reset main keys
@@ -139,6 +144,8 @@ def reset_analysis():
                 'original_columns': []
             }
         elif key == 'respondent_id_column':
+            st.session_state[key] = "-- Select an ID column --"
+        elif key == 'subjectID':
             st.session_state[key] = "-- Select an ID column --"
         elif key == 'text_column':
             st.session_state[key] = "-- Select a text column --"
@@ -221,7 +228,8 @@ def detect_changes_and_cascade():
         'file_key': st.session_state.get('previous_file_key'),
         'df_shape': tuple(st.session_state.df.shape) if st.session_state.get('df') is not None else None,
         'text_column': st.session_state.get('text_column'),
-        'id_column': st.session_state.get('respondent_id_column')
+        'id_column': st.session_state.get('respondent_id_column'),
+        'subjectID': st.session_state.get('subjectID')
     }
     
     previous_fingerprint = st.session_state.state_fingerprints.get('last_known', {})
@@ -274,7 +282,7 @@ def check_automatic_completion():
                 validation = st.session_state.backend.validate_columns(
                     st.session_state.df, 
                     st.session_state.text_column,
-                    st.session_state.respondent_id_column,
+                    st.session_state.subjectID,
                     st.session_state.session_id
                 )
                 
@@ -328,6 +336,7 @@ def preserve_column_selections():
     # This is called during navigation to ensure selections are maintained
     preserved_selections = {
         'respondent_id_column': st.session_state.get('respondent_id_column'),
+        'subjectID': st.session_state.get('subjectID'),
         'text_column': st.session_state.get('text_column'),
         'user_selections': st.session_state.get('user_selections', {}).copy()
     }

@@ -169,7 +169,7 @@ def check_session_state_health():
     issues = []
     
     # Check for required keys
-    required_keys = ['df', 'text_column', 'respondent_id_column']
+    required_keys = ['df', 'text_column', 'respondent_id_column', 'subjectID']
     for key in required_keys:
         if key not in st.session_state:
             issues.append(f"Missing session state key: {key}")
@@ -198,6 +198,7 @@ def log_session_state_debug():
         "df_shape": st.session_state.df.shape if st.session_state.get('df') is not None else None,
         "text_column": st.session_state.get('text_column'),
         "id_column": st.session_state.get('respondent_id_column'),
+        "subjectID": st.session_state.get('subjectID'),
         "tab_completions": {
             "a": st.session_state.get('tab_data_loading_complete', False),
             "b": st.session_state.get('tab_preprocessing_complete', False),

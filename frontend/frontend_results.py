@@ -136,7 +136,7 @@ def tab_results(backend_available):
             results,
             st.session_state.df,
             st.session_state.text_column,
-            st.session_state.respondent_id_column,
+            st.session_state.subjectID,
             st.session_state.session_id
         )
         export_type = "summary"
@@ -147,7 +147,7 @@ def tab_results(backend_available):
             results,
             st.session_state.df,
             st.session_state.text_column,
-            st.session_state.respondent_id_column,
+            st.session_state.subjectID,
             st.session_state.session_id
         )
         export_type = "detailed"
