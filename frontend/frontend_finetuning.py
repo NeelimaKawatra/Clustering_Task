@@ -24,8 +24,6 @@ def tab_finetuning(backend_available: bool):
             st.session_state.session_id, "tab_visit", {"tab_name": "finetuning"}
         )
 
-    st.header("Fine-tuning: Manual Cluster Adjustment")
-    st.caption("Manually adjust your clustering results using standardized backend functions.")
 
     # Optional: show AI config in sidebar (comment out if you don’t want it)
     # show_llm_config_sidebar()
@@ -43,15 +41,10 @@ def tab_finetuning(backend_available: bool):
 
     backend = get_finetuning_backend()
 
-    # Summary
-    show_finetuning_summary(backend)
-
-    # Main interface
+    # Summary + Main interface
     show_cluster_management_interface(backend)
+    st.markdown("---")
     show_entry_management_interface(backend)
-
-    # Export
-    #show_export_interface(backend)
 
     # Optional: tiny AI helper panel (uses the wrapper in this file)
     with st.expander("🤖 AI Assist (optional)"):
@@ -96,12 +89,7 @@ def _initialize_backend() -> bool:
     clustering_results = st.session_state.clustering_results
     df = st.session_state.df
     text_column = st.session_state.text_column
-
-    # Subject ID column from user selections
-    user_selections = st.session_state.get("user_selections", {})
-    subject_id_column = None
-    if not user_selections.get("id_is_auto_generated", True):
-        subject_id_column = user_selections.get("id_column_choice")
+    subject_id_column = st.session_state.get("subjectID")
 
     # Initialize backend
     success = backend.initialize_from_clustering_results(
@@ -115,10 +103,16 @@ def _initialize_backend() -> bool:
     return False
 
 
-def show_finetuning_summary(backend):
-    """Show summary of current clustering state"""
+def show_cluster_management_interface(backend):
+    """interface for managing clusters
+    Part 1: Summary of current clusters
+    Part 2: cluster management I (rename, avg confidence, deletion)
+    Part 3: cluster management II (create new cluster, merge clusters)
+    """
+    st.subheader("Option 1: Cluster Management")
 
-    with st.expander("Clustering Summary", expanded=True):
+    # Part 1: Summary of current clusters
+    with st.expander("Cluster Summary", expanded=True):
         all_clusters = backend.getAllClusters()
         all_entries = backend.getAllEntries()
         modification_summary = backend.getModificationSummary()
@@ -128,62 +122,27 @@ def show_finetuning_summary(backend):
         with col1:
             st.metric("Total Clusters", len(all_clusters))
         with col2:
-            st.metric("Total Entries", len(all_entries))
+            st.metric("Total Text Entries", len(all_entries))
         with col3:
-            st.metric("Manual Clusters", modification_summary.get("manual_clusters_created", 0))
+            st.metric("Manually Created Clusters", modification_summary.get("manual_clusters_created", 0))
         with col4:
             mod_pct = modification_summary.get("modification_percentage", 0)
-            st.metric("Modified %", f"{mod_pct:.1f}%")
-
-
-def show_cluster_management_interface(backend):
-    """Interface for managing clusters"""
-
-    st.subheader("Cluster Management")
-
+            st.metric("Modified Entries %", f"{mod_pct:.1f}%")
+    
+    # Part 2: cluster management I (rename, avg confidence, deletion)
     all_clusters = backend.getAllClusters()
 
-    # Cluster operations
-    col1, col2 = st.columns(2)
+    # Display current clusters first
+    st.markdown("**Current Clusters** (rename, check confidence, delete)")
 
-    with col1:
-        st.markdown("**Create New Cluster**")
-        new_cluster_name = st.text_input("New cluster name", placeholder="Enter cluster name")
-        if st.button("Create Cluster") and new_cluster_name.strip():
-            success, result = backend.createNewCluster(new_cluster_name.strip())
-            if success:
-                st.success(f"Created cluster: {result}")
-                st.rerun()
-            else:
-                st.error(result)
-
-    with col2:
-        st.markdown("**Merge Clusters**")
-        cluster_ids = list(all_clusters.keys())
-        if len(cluster_ids) >= 2:
-            cluster1 = st.selectbox("First cluster", cluster_ids, key="merge_cluster1")
-            cluster2 = st.selectbox("Second cluster", cluster_ids, key="merge_cluster2")
-            merge_name = st.text_input("Merged cluster name (optional)", key="merge_name")
-
-            if st.button("Merge Clusters") and cluster1 != cluster2:
-                success, result = backend.mergeClusters(cluster1, cluster2, merge_name or None)
-                if success:
-                    st.success(f"Merged into cluster: {result}")
-                    st.rerun()
-                else:
-                    st.error(result)
-
-    # Display clusters
-    st.markdown("**Current Clusters**")
-
-    #for cluster_id, cluster_data in all_clusters.items():
+    # group by manual/original
     for i, (cluster_id, cluster_data) in enumerate(all_clusters.items()):
         key_prefix = f"{cluster_id}_{i}"
 
         with st.expander(
             f"🗂️ {cluster_data['cluster_name']} ({len(cluster_data['entry_ids'])} entries)", expanded=False
         ):
-            # Cluster name editing and statistics
+        
             col1, col2, col3 = st.columns([2, 1, 1])
 
             with col1:
@@ -227,12 +186,53 @@ def show_cluster_management_interface(backend):
                 if len(entries_text) > 5:
                     st.caption(f"... and {len(entries_text) - 5} more entries")
 
+    # Part 3: cluster management II (create new cluster, merge clusters)
+    current_clusters = backend.getAllClusters()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Create New Cluster**")
+        new_cluster_name = st.text_input("New cluster name", placeholder="Enter cluster name")
+        if st.button("Create Cluster") and new_cluster_name.strip():
+            success, result = backend.createNewCluster(new_cluster_name.strip())
+            if success:
+                st.success(f"Created cluster: {result}")
+                st.rerun()
+            else:
+                st.error(result)
+
+    with col2:
+        st.markdown("**Merge Clusters**")
+        cluster_ids = list(current_clusters.keys())
+        if len(cluster_ids) >= 2:
+            cluster1 = st.selectbox(
+                "First cluster", 
+                cluster_ids, 
+                key="merge_cluster1",
+                format_func=lambda cid: f"{current_clusters[cid]['cluster_name']} ({len(current_clusters[cid]['entry_ids'])} entries)"
+            )
+            cluster2 = st.selectbox(
+                "Second cluster", 
+                cluster_ids, 
+                key="merge_cluster2",
+                format_func=lambda cid: f"{current_clusters[cid]['cluster_name']} ({len(current_clusters[cid]['entry_ids'])} entries)"
+            )
+            merge_name = st.text_input("Merged cluster name (optional)", key="merge_name")
+
+            if st.button("Merge Clusters") and cluster1 != cluster2:
+                success, result = backend.mergeClusters(cluster1, cluster2, merge_name or None)
+                if success:
+                    st.success(f"Merged into cluster: {result}")
+                    st.rerun()
+                else:
+                    st.error(result)
 
 
 def show_entry_management_interface(backend):
     """Interface for managing individual entries"""
 
-    st.subheader("Entry Management")
+    st.subheader("Option 2: Text Entry Management")
 
     all_entries = backend.getAllEntries()
     all_clusters = backend.getAllClusters()
@@ -262,7 +262,7 @@ def show_entry_management_interface(backend):
                 selected_entry = st.selectbox(
                     "Matching entries",
                     matching_entries,
-                    format_func=lambda x: f"{x}: {all_entries[x]['entry_text'][:50]}...",
+                    format_func=lambda eid: f"{all_entries[eid]['subjectID']}: {all_entries[eid]['entry_text'][:50]}..."
                 )
             else:
                 st.info("No entries match your search")
@@ -272,7 +272,7 @@ def show_entry_management_interface(backend):
             selected_entry = st.selectbox(
                 "Select entry",
                 entry_ids[:50],
-                format_func=lambda x: f"{x}: {all_entries[x]['entry_text'][:50]}...",
+                format_func=lambda eid: f"{all_entries[eid]['subjectID']}: {all_entries[eid]['entry_text'][:50]}..."
             )
 
     with col2:
@@ -281,16 +281,24 @@ def show_entry_management_interface(backend):
 
             entry_data = backend.getEntry(selected_entry)
             if entry_data:
-                st.text(f"Entry ID: {entry_data['entryID']}")
-                st.text(f"Subject ID: {entry_data.get('subjectID', 'N/A')}")
-                st.text(f"Current Cluster: {entry_data.get('clusterID', 'Unassigned')}")
+                # Show subject ID
+                st.text(f"Subject ID: {entry_data['subjectID']}")
+
+                # Show current cluster name with number of entries
+                cluster_id = entry_data.get('clusterID', 'Unassigned')
+                cluster_info = all_clusters.get(cluster_id)
+                if cluster_info:
+                    st.text(f"Current Cluster: {cluster_info['cluster_name']} ({len(cluster_info['entry_ids'])} entries)")
+                else:
+                    st.text(f"Current Cluster: {cluster_id}")
+
+                # Show confidence
                 st.text(f"Confidence: {entry_data.get('probability', 0):.2f}")
 
-                st.markdown("**Text:**")
-                st.text_area("", value=entry_data["entry_text"], height=100, disabled=True, key=f"text_{selected_entry}")
+                # Show complete text entry
+                st.text_area("**Complete Text Entry:**", value=entry_data["entry_text"], height=100, disabled=True, key=f"text_{selected_entry}")
 
-                # Move entry
-                st.markdown("**Move Entry**")
+                # Move entry to cluster
                 cluster_options = list(all_clusters.keys())
                 current_cluster = entry_data.get("clusterID")
 
@@ -300,7 +308,7 @@ def show_entry_management_interface(backend):
                     current_index = 0
 
                 target_cluster = st.selectbox(
-                    "Move to cluster",
+                    "Move Selected Entry to Cluster",
                     cluster_options,
                     index=current_index,
                     format_func=lambda x: f"{all_clusters[x]['cluster_name']} ({len(all_clusters[x]['entry_ids'])} entries)",
@@ -317,69 +325,6 @@ def show_entry_management_interface(backend):
                             st.rerun()
                         else:
                             st.error(message)
-
-
-def show_export_interface(backend):
-    """Interface for exporting fine-tuned results"""
-
-    st.subheader("Export Fine-tuned Results")
-
-    modification_summary = backend.getModificationSummary()
-
-    # Show modification summary
-    with st.expander("Modification Summary", expanded=True):
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric("Manual Clusters Created", modification_summary.get("manual_clusters_created", 0))
-        with col2:
-            st.metric("Clusters Merged", modification_summary.get("clusters_merged", 0))
-        with col3:
-            st.metric("Entries Modified", modification_summary.get("entries_in_manual_clusters", 0))
-
-    # Export options
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("📊 Export to CSV", use_container_width=True):
-            df = st.session_state.df
-            text_column = st.session_state.text_column
-            user_selections = st.session_state.get("user_selections", {})
-            subject_id_column = None
-
-            if not user_selections.get("id_is_auto_generated", True):
-                subject_id_column = user_selections.get("id_column_choice")
-
-            export_df = backend.exportFineTunedResults(df, text_column, subject_id_column)
-
-            csv_data = export_df.to_csv(index=False)
-            st.download_button(
-                "Download Fine-tuned Results CSV",
-                csv_data,
-                "finetuned_clustering_results.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-
-    with col2:
-        if st.button("📋 Export Summary Report", use_container_width=True):
-            report = create_finetuning_report(backend)
-            st.download_button(
-                "Download Summary Report", report, "finetuning_summary_report.txt", "text/plain", use_container_width=True
-            )
-
-    with col3:
-        if st.button("🔄 Reset to Original", use_container_width=True):
-            if st.session_state.get("confirm_reset"):
-                # Actually reset
-                st.session_state.finetuning_initialized = False
-                del st.session_state["confirm_reset"]
-                st.success("Reset to original clustering results")
-                st.rerun()
-            else:
-                # Ask for confirmation
-                st.session_state.confirm_reset = True
-                st.warning("Click again to confirm reset")
 
 
 def create_finetuning_report(backend) -> str:

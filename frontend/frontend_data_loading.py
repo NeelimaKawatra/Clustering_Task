@@ -255,7 +255,7 @@ def tab_data_loading(backend_available):
     st.subheader("Column Selection")
 
     # subject id column selection
-    st.markdown("**Step 1: Choose a column for subject identification**")
+    st.markdown("**Step 1: Choose a column for subject identification (Subject IDs)**")
     auto_option = "use entryID (row numbers) as subject IDs"
     prompt_option = "-- Select a subject ID column--"
 
@@ -338,7 +338,7 @@ def tab_data_loading(backend_available):
     
 
     # Text Column Section with Enhanced Change Detection
-    st.markdown("**Step 2: Choose a Column for text clustering**")
+    st.markdown("**Step 2: Choose a column for text clustering**")
     prompt_option_text = "-- Select a text column --"
     
     # Get text column suggestions first to filter options
@@ -392,8 +392,6 @@ def tab_data_loading(backend_available):
         st.session_state.user_selections.update({
             'id_column_choice': selected_id,
             'text_column_choice': selected_text_column,
-            'id_is_auto_generated': selected_id == "entryID", 
-            #'subjectID': selected_id,
             'original_columns': [selected_id, selected_text_column] if selected_id != 'entryID' else [selected_text_column]
         })
 

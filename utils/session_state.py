@@ -10,20 +10,15 @@ def initialize_session_state(backend_available=True):
     if 'df' not in st.session_state:
         st.session_state.df = None
     
-    if 'clean_ids' not in st.session_state:
-        st.session_state.clean_ids = []
-    
     # User selections - FIXED: Don't reset if already exist
     if 'user_selections' not in st.session_state:
         st.session_state.user_selections = {
             'id_column_choice': None,
             'text_column_choice': None,
-            'id_is_auto_generated': True,
             'original_columns': []
         }
     
     # Column selections - FIXED: Preserve existing selections
-    
     if 'subjectID' not in st.session_state:
         st.session_state.subjectID = "-- Select a subject ID column--"
     
@@ -113,7 +108,9 @@ def reset_analysis():
     
     # FIXED: Also reset column selections when doing full analysis reset
     column_selection_keys = [
-        'respondent_id_column', 'subjectID', 'text_column', 'user_selections'
+        'subjectID', 
+        'text_column', 
+        'user_selections'
     ]
     
     # Reset main keys
@@ -136,15 +133,12 @@ def reset_analysis():
             st.session_state[key] = {
                 'id_column_choice': None,
                 'text_column_choice': None,
-                'id_is_auto_generated': True,
                 'original_columns': []
             }
-        elif key == 'respondent_id_column':
-            st.session_state[key] = "-- Select an ID column --"
-        elif key == 'subjectID':
-            st.session_state[key] = "-- Select an ID column --"
         elif key == 'text_column':
             st.session_state[key] = "-- Select a text column --"
+        elif key == 'subjectID':
+            st.session_state[key] = "-- Select a subject ID column--"
     
     # Reset to first page
     st.session_state.current_page = "data_loading"
@@ -330,7 +324,6 @@ def preserve_column_selections():
     """Helper to preserve column selections during navigation - used internally"""
     # This is called during navigation to ensure selections are maintained
     preserved_selections = {
-        'respondent_id_column': st.session_state.get('respondent_id_column'),
         'subjectID': st.session_state.get('subjectID'),
         'text_column': st.session_state.get('text_column'),
         'user_selections': st.session_state.get('user_selections', {}).copy()

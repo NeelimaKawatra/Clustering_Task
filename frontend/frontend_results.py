@@ -152,7 +152,7 @@ def tab_results(backend_available):
         filename_suffix = "_detailed"
 
     # Show preview of selected export
-    st.write(f"**Preview of {export_type} export data:**")
+    st.write(f"**Preview of {export_type}-view export data:**")
     st.dataframe(results_df, use_container_width=True, hide_index=True, height=400)
 
     # Show column information

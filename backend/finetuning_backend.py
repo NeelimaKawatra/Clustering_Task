@@ -73,9 +73,14 @@ class FineTuningBackend:
             return False
 
     # Reads
+    # Lookup entry by entryID (canonical)
     def getEntry(self, entryID: str) -> Optional[Dict[str, Any]]:
-        if not self.initialized or entryID not in self.entries: return None
-        out = self.entries[entryID].copy(); out["clusterID"] = self.entry_to_cluster.get(entryID); return out
+        """Lookup by entryID (canonical)."""
+        if not self.initialized or entryID not in self.entries:
+            return None
+        out = self.entries[entryID].copy()
+        out["clusterID"] = self.entry_to_cluster.get(entryID)
+        return out
 
     def getAllEntriesInCluster(self, clusterID: str) -> List[str]:
         if not self.initialized or clusterID not in self.clusters: return []
