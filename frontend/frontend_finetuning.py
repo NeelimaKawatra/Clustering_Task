@@ -176,26 +176,30 @@ def show_cluster_management_interface(backend):
     # Display clusters
     st.markdown("**Current Clusters**")
 
-    for cluster_id, cluster_data in all_clusters.items():
+    #for cluster_id, cluster_data in all_clusters.items():
+    for i, (cluster_id, cluster_data) in enumerate(all_clusters.items()):
+        key_prefix = f"{cluster_id}_{i}"
+
         with st.expander(
             f"🗂️ {cluster_data['cluster_name']} ({len(cluster_data['entry_ids'])} entries)", expanded=False
         ):
-            # Cluster name editing
+            # Cluster name editing and statistics
             col1, col2, col3 = st.columns([2, 1, 1])
 
             with col1:
                 new_name = st.text_input(
-                    "Cluster name", value=cluster_data["cluster_name"], key=f"name_{cluster_id}"
+                        "Cluster name", value=cluster_data["cluster_name"], key=f"name_{key_prefix}"
                 )
-
-                if new_name != cluster_data["cluster_name"]:
-                    if st.button("Update Name", key=f"update_name_{cluster_id}"):
-                        success, message = backend.changeClusterName(cluster_id, new_name)
-                        if success:
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.error(message)
+                # Always show the button; enable only when changed
+                changed = new_name.strip() != cluster_data["cluster_name"]
+                clicked = st.button("Update Name", key=f"update_name_{key_prefix}", disabled=not changed)
+                if clicked:
+                    success, message = backend.changeClusterName(cluster_id, new_name.strip())
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)  
 
             with col2:
                 # Show cluster statistics
@@ -205,7 +209,7 @@ def show_cluster_management_interface(backend):
 
             with col3:
                 # Delete cluster option
-                if st.button("Delete", key=f"delete_{cluster_id}"):
+                if st.button("Delete", key=f"delete_{key_prefix}"):
                     success, message = backend.deleteCluster(cluster_id)
                     if success:
                         st.success(message)
@@ -222,6 +226,7 @@ def show_cluster_management_interface(backend):
 
                 if len(entries_text) > 5:
                     st.caption(f"... and {len(entries_text) - 5} more entries")
+
 
 
 def show_entry_management_interface(backend):
