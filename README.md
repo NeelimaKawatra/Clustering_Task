@@ -14,11 +14,10 @@ git clone https://github.com/NeelimaKawatra/Clustering_Task
 
 ### 2. Install Dependencies
 ```bash
-# Basic installation (works with mock clustering)
-pip install streamlit pandas
-
-# Full installation (for real BERTopic clustering)
-pip install streamlit pandas bertopic sentence-transformers umap-learn hdbscan nltk
+#Create environment from environment.yml
+conda env create -f environment.yml
+#Activate the environment
+conda activate clustery
 ```
 
 ### 3. Run the Application
