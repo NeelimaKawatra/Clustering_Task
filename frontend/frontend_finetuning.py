@@ -34,8 +34,8 @@ def tab_finetuning(backend_available: bool):
             st.session_state.session_id, "tab_visit", {"tab_name": "finetuning"}
         )
 
-    st.header("🧩 Fine-tuning")
-    st.caption("Manually adjust your clustering results, rename clusters, move entries, and export fine-tuned results.")
+    #st.header("🧩 Fine-tuning")
+    #st.caption("Manually adjust your clustering results, rename clusters, move entries, and export fine-tuned results.")
 
     # Prerequisite check
     if not st.session_state.get("clustering_results") or not st.session_state.clustering_results.get("success", False):
@@ -399,7 +399,7 @@ def show_drag_drop_board(backend):
             unique_moves.append((eid, cid))
 
     if unique_moves:
-        st.info(f"Detected {len(unique_moves)} change(s).")
+       # st.info(f"Detected {len(unique_moves)} change(s).")
         if st.button("Apply changes", use_container_width=True):
             ok, fail = 0, 0
             for eid, target_cid in unique_moves:
