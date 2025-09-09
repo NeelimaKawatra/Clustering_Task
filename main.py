@@ -154,6 +154,7 @@ def create_sidebar_navigation():
         if 'current_page' not in st.session_state:
             st.session_state.current_page = "data_loading"
         
+        
         # AUTO-NAVIGATION LOGIC - This is what was missing!
         # Check if we should auto-navigate after completion
         if st.session_state.get('should_navigate_next', False):
@@ -166,10 +167,10 @@ def create_sidebar_navigation():
                 # Give user choice between results and finetuning
                 if st.session_state.current_page == "clustering":
                     st.session_state.current_page = "finetuning"
-            
+        
             # Clear the navigation flag
             st.session_state.should_navigate_next = False
-        
+
         st.markdown("### Navigation")
         
         # 1. Data Loading - always available
@@ -267,30 +268,6 @@ def create_sidebar_navigation():
         st.progress(progress_percentage)
         st.caption(f"{completed_steps}/{len(progress_steps)} core steps completed")
         
-        # Smart next step suggestions with auto-navigation
-        if not data_complete:
-            st.info("📁 Next: Upload your data file")
-        elif not preprocessing_complete:
-            st.info("🧹 Next: Process your text data") 
-            if st.button("→ Auto-Navigate to Preprocessing", use_container_width=True, key="auto_nav_prep"):
-                st.session_state.current_page = "preprocessing"
-                st.rerun()
-        elif not clustering_complete:
-            st.info("🔍 Next: Run clustering analysis")
-            if st.button("→ Auto-Navigate to Clustering", use_container_width=True, key="auto_nav_cluster"):
-                st.session_state.current_page = "clustering"
-                st.rerun()
-        else:
-            st.success("🎉 Analysis Complete!")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Fine-tune", use_container_width=True, key="quick_nav_finetune"):
-                    st.session_state.current_page = "finetuning"
-                    st.rerun()
-            with col2:
-                if st.button("View Results", use_container_width=True, key="quick_nav_results"):
-                    st.session_state.current_page = "results"
-                    st.rerun()
         
         st.markdown("---")
         

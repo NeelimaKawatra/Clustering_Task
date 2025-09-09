@@ -313,29 +313,6 @@ def tab_data_loading(backend_available):
             st.caption("Selected ID column not accessible")
 
 
-    # Show ID column preview and validation
-    if selected_id and selected_id not in [auto_option, prompt_option]:
-        try:
-            id_column_data = df[selected_id]
-            
-            if selected_id == 'entryID':
-                pass
-                #st.success(f"Using entryID column: {selected_id} (auto-generated row numbers)")
-            else:
-                # Check if column is numeric
-                if pd.api.types.is_numeric_dtype(id_column_data):
-                    #st.success(f"Numeric ID column selected: {selected_id}")
-                    pass
-                else:
-                    st.warning(f"Non-numeric column selected. ID columns work best with numbers.")
-                
-        except (KeyError, TypeError):
-            st.error(f"Column '{selected_id}' not found in data")
-            return
-    elif selected_id == auto_option:
-        pass
-        #st.info("Will provide you with your row numbers as your subject IDs.")
-    
 
     # Text Column Section with Enhanced Change Detection
     st.markdown("**Step 2: Choose a column for text clustering**")
@@ -399,7 +376,6 @@ def tab_data_loading(backend_available):
     # Show feedback about text column detection
     if selected_text_column and selected_text_column != prompt_option_text:
         if text_columns:
-            #st.success(f"Text column selected: {selected_text_column}" )
             # telling how many text columns were detected
             #st.success(f"Text column selected from {len(text_columns)} text columns")
             pass
@@ -448,26 +424,26 @@ def tab_data_loading(backend_available):
             with quality_col1:
                 st.metric(
                     "Valid Texts", 
-                    _total - _empty,
-                    delta=f"of {_total} total"
+                    _total - _empty
+                    #delta=f"of {_total} total"
                 )
             with quality_col2:
                 st.metric(
                     "Avg Length", 
-                    f"{_avg_len:.0f} chars",
-                    delta=f"Sample size: {int(stats.get('sample_size', 0))}"
+                    f"{_avg_len:.0f} chars"
+                    #delta=f"Sample size: {int(stats.get('sample_size', 0))}"
                 )
             with quality_col3:
                 st.metric(
                     "Avg Words", 
-                    f"{_avg_words:.1f}",
-                    delta=f"Sample analysis"
+                    f"{_avg_words:.1f}"
+                    #delta=f"Sample analysis"
                 )
             with quality_col4:
                 st.metric(
                     "Unique Texts", 
-                    _unique,
-                    delta=f"No duplicates/NA"
+                    _unique
+                    #delta=f"No duplicates/NA"
                 )
             
             # Sample texts in a nice format
@@ -497,38 +473,40 @@ def tab_data_loading(backend_available):
             
             # Ready to proceed section
             st.markdown("---")
-            st.subheader("Ready to Proceed")
+            st.subheader("Ready to Proceed with:")
             
-            # Summary display with better styling
-            summary_col1, summary_col2, summary_col3 = st.columns(3)
+            # Summary display (showing only the subject id configurations and text column configuration)
+            summary_col1, summary_col2 = st.columns(2)
             
+            """ 
             with summary_col1:
                 st.markdown("**Data Summary:**")
                 st.write(f"• **Total rows:** {len(df):,}")
                 st.write(f"• **Valid texts:** {_total - _empty:,}")
                 st.write(f"• **Data quality:** {'Excellent' if _avg_len > 50 else 'Good' if _avg_len > 20 else 'Fair'}")
+            """
             
-            with summary_col3:
-                st.markdown("**Text Configuration:**")
-                st.write(f"• **Column:** {selected_text_column}")
-                st.write(f"• **Avg length:** {stats['avg_length']:.0f} characters")
-                st.write(f"• **Avg words:** {stats['avg_words']:.1f} words")
-            
-            with summary_col2:
-                st.markdown("**Subject ID Configuration:**")
+            with summary_col1:
+                st.markdown("**Subject ID Column Configuration:**")
                 if selected_id and selected_id != prompt_option:
                     if selected_id == 'entryID':
                         st.write("• **Source:** entryID (row numbers)")
                         st.write("• **Type:** Auto-generated")
                         st.write("• **Format:** 1, 2, 3, 4...")
                     else:
-                        st.write(f"• **Column:** {selected_id}")
+                        st.write(f"• **column name:** {selected_id}")
                         col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[selected_id]) else 'Text'
-                        st.write(f"• **Type:** {col_type}")
+                        st.write(f"• **type:** {col_type}")
                 else:
                     st.write("• **Type:** Auto-generated")
                     st.write("• **Format:** ID_001, ID_002...")
                     st.write("• **Count:** Sequential numbering")
+            
+            with summary_col2:
+                st.markdown("**Text Column Configuration:**")
+                st.write(f"• **column name:** {selected_text_column}")
+                st.write(f"• **avg length:** {stats['avg_length']:.0f} characters")
+                st.write(f"• **avg words:** {stats['avg_words']:.1f} words")
             
             # Auto-completion with celebration message
             st.markdown("<br>", unsafe_allow_html=True)
@@ -538,8 +516,6 @@ def tab_data_loading(backend_available):
                 # Auto-complete when validation passes
                 st.session_state.tab_data_loading_complete = True
 
-            
-                
                 # Track completion
                 if backend_available:
                     st.session_state.backend.track_activity(st.session_state.session_id, "data_upload", {
@@ -552,10 +528,9 @@ def tab_data_loading(backend_available):
                     })
                             
                 # AUTO-NAVIGATE: Add this here
-                from utils.session_state import auto_navigate_to_next_available
-                auto_navigate_to_next_available()
+                #from utils.session_state import auto_navigate_to_next_available
+                #auto_navigate_to_next_available()
                 
-                #st.balloons()
                 # Show completion message
                 st.success("Data Loading Complete!")
                 st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
@@ -600,19 +575,6 @@ def tab_data_loading(backend_available):
             - Look for columns with survey responses, comments, or descriptions
             """)
             
-
-            """ old code
-            # Reset completion if validation fails
-            if st.session_state.get('tab_data_loading_complete', False):
-                st.session_state.tab_data_loading_complete = False
-                st.rerun()
-            
-            # In your data loading tab, when completion happens:
-            st.session_state.tab_data_loading_complete = True
-            from utils.session_state import auto_navigate_to_next_available
-            auto_navigate_to_next_available()
-            st.rerun()
-            """
             #If it was previously complete, mark incomplete and stop here
             if st.session_state.get('tab_data_loading_complete', False):
                 st.session_state.tab_data_loading_complete = False

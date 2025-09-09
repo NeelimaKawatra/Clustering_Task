@@ -337,7 +337,6 @@ def restore_column_selections(selections):
             st.session_state[key] = value
 
 # Updated auto_navigate_to_next_available function for session_state.py
-
 def auto_navigate_to_next_available():
     """Automatically navigate to the next available step"""
     # Set the flag that the sidebar navigation will check

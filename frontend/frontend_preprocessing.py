@@ -189,8 +189,8 @@ def show_processing_results():
         if not st.session_state.get('tab_preprocessing_complete', False):
             st.session_state.tab_preprocessing_complete = True
             # AUTO-NAVIGATE
-            from utils.session_state import auto_navigate_to_next_available
-            auto_navigate_to_next_available()
+            #from utils.session_state import auto_navigate_to_next_available
+            #auto_navigate_to_next_available()
             #st.balloons()
             
             # Track completion
