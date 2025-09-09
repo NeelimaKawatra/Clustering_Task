@@ -2,6 +2,7 @@
 import streamlit as st
 import os
 import re
+from utils import session_state
 from utils.helpers import get_file_from_upload
 from utils.session_state import reset_analysis
 import pandas as pd
@@ -108,7 +109,7 @@ def tab_data_loading(backend_available):
     if 'previous_file_key' in st.session_state:
         if current_file_key != st.session_state.previous_file_key and current_file_key is not None:
             # New file detected - this should reset everything
-            st.warning("🔄 New file detected - resetting entire analysis")
+            st.warning("🔄 New file detected")
             reset_analysis()
             file_changed = True
     else:
@@ -146,7 +147,6 @@ def tab_data_loading(backend_available):
             st.session_state.tab_data_loading_complete = False
             
             st.success(f"{message}")
-            #st.balloons()
             
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
@@ -187,6 +187,7 @@ def tab_data_loading(backend_available):
         st.error("No data loaded. Please upload a file first.")
         return
     
+    st.markdown("---")
 
     # File Overview Section
     st.subheader("File Overview")
@@ -250,12 +251,12 @@ def tab_data_loading(backend_available):
         st.dataframe(stats_df, use_container_width=True)
 
 
+############################################################################################################################
+    st.markdown("---")
+    st.subheader("Column Selection:")
 
-    # Column Selection Section
-    st.subheader("Column Selection")
-
-    # subject id column selection
-    st.markdown("**Step 1: Choose a column for subject identification (Subject IDs)**")
+    # subject id column selection section
+    st.markdown("Step 1: Choose a column for subject identification (Subject IDs)")
     auto_option = "use entryID (row numbers) as subject IDs"
     prompt_option = "-- Select a subject ID column--"
 
@@ -271,7 +272,7 @@ def tab_data_loading(backend_available):
     # get the current subject id selection
     current_id_selection = st.session_state.get('subjectID', prompt_option) or prompt_option
 
-    # Display "entryID" as the auto label in the UI
+    # Display "entryID" as the auto_option label in the UI
     if current_id_selection == "entryID":
         current_id_selection = auto_option
     if current_id_selection not in id_options:
@@ -282,7 +283,7 @@ def tab_data_loading(backend_available):
 
     # selectbox for the subject id column
     selected_id = st.selectbox(
-        label="Choose a column for ID:",
+        label="Subject ID Column:",
         label_visibility="collapsed",
         options=id_options,
         index=id_column_index,
@@ -301,6 +302,22 @@ def tab_data_loading(backend_available):
     # save the selected subject id to the session state 
     st.session_state.subjectID = selected_id
 
+    # save the selected subject id to the session state if the selected subject id is the prompt option or not set, set it to entryID (row numbers)
+    if st.session_state.subjectID == prompt_option or not st.session_state.subjectID:
+        st.session_state.subjectID = "entryID"
+
+    
+    # Show sample subject IDs (always resolved)
+    sid = st.session_state.subjectID
+    if sid:
+        try:
+            sample_ids = df[sid].head(10).tolist()
+            if sample_ids:
+                formatted = ", ".join([f'"{str(x)}"' for x in sample_ids])
+                st.caption(f"**Sample subject IDs: {{{formatted}}}**")
+        except (KeyError, AttributeError):
+            st.caption("Selected ID column not accessible")
+    """
     # Show sample subject IDs
     if selected_id and selected_id != prompt_option:
         try:
@@ -311,11 +328,12 @@ def tab_data_loading(backend_available):
                 st.caption(f"**Sample subject IDs: {{{formatted}}}**")
         except (KeyError, AttributeError):
             st.caption("Selected ID column not accessible")
+    """
 
+############################################################################################################################
 
-
-    # Text Column Section with Enhanced Change Detection
-    st.markdown("**Step 2: Choose a column for text clustering**")
+    # text column selection section
+    st.markdown(" Step 2: Choose a column for text clustering")
     prompt_option_text = "-- Select a text column --"
     
     # Get text column suggestions first to filter options
@@ -347,11 +365,11 @@ def tab_data_loading(backend_available):
     text_column_index = get_safe_index(text_options, current_text_selection, 0)
     
     selected_text_column = st.selectbox(
-        label="Choose a text column:",
+        label="Text Column:",
         label_visibility="collapsed",
         options=text_options,
         index=text_column_index,
-        help="Choose the column with text you want to cluster",
+        help="Select the column with text you want to cluster",
         key="text_selector"
     )
     
@@ -365,13 +383,22 @@ def tab_data_loading(backend_available):
         st.session_state.user_selections = {}
 
     # Only update user selections if valid columns are selected
-    if selected_text_column != prompt_option_text and selected_id != prompt_option:
+    #if selected_text_column != prompt_option_text and selected_id != prompt_option:
+    if selected_text_column != prompt_option_text and st.session_state.subjectID:
         st.session_state.user_selections.update({
-            'id_column_choice': selected_id,
+            'id_column_choice': st.session_state.subjectID,
+            'text_column_choice': selected_text_column,
+            'original_columns': [st.session_state.subjectID, selected_text_column]
+                if st.session_state.subjectID != 'entryID' else [selected_text_column]
+        })
+
+        """
+        st.session_state.user_selections.update({
+            'id_column_choice': st.session_state.subjectID,
             'text_column_choice': selected_text_column,
             'original_columns': [selected_id, selected_text_column] if selected_id != 'entryID' else [selected_text_column]
         })
-
+        """
 
     # Show feedback about text column detection
     if selected_text_column and selected_text_column != prompt_option_text:
@@ -395,13 +422,13 @@ def tab_data_loading(backend_available):
     # Validation and Quality Analysis
     if (selected_text_column and selected_text_column != prompt_option_text and 
         selected_text_column in df.columns):
-        st.subheader("Text Column Quality Analysis")
+        #st.subheader("Text Column Quality Analysis")
         
         with st.spinner("Analyzing data quality..."):
             validation_result = st.session_state.backend.validate_columns(
                 df, 
                 selected_text_column, 
-                selected_id if selected_id != prompt_option else None, 
+                st.session_state.subjectID,
                 st.session_state.session_id
             )
         
@@ -422,29 +449,27 @@ def tab_data_loading(backend_available):
             quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
             
             with quality_col1:
+                text_entries = len(df[selected_text_column].dropna())
                 st.metric(
-                    "Valid Texts", 
-                    _total - _empty
-                    #delta=f"of {_total} total"
+                    "Total Text Entries", 
+                    text_entries
                 )
             with quality_col2:
                 st.metric(
-                    "Avg Length", 
-                    f"{_avg_len:.0f} chars"
-                    #delta=f"Sample size: {int(stats.get('sample_size', 0))}"
+                    "Unique Text Entries",
+                    _unique
                 )
             with quality_col3:
                 st.metric(
-                    "Avg Words", 
-                    f"{_avg_words:.1f}"
-                    #delta=f"Sample analysis"
+                    "Avg Text Length", 
+                    f"{_avg_len:.0f} chars"
                 )
             with quality_col4:
                 st.metric(
-                    "Unique Texts", 
-                    _unique
-                    #delta=f"No duplicates/NA"
+                    "Avg Text Words", 
+                    f"{_avg_words:.1f}"
                 )
+            
             
             # Sample texts in a nice format
             with st.expander("Sample Texts Analysis", expanded=False):
@@ -475,38 +500,26 @@ def tab_data_loading(backend_available):
             st.markdown("---")
             st.subheader("Ready to Proceed with:")
             
-            # Summary display (showing only the subject id configurations and text column configuration)
+            # Summary display (showing only the subject id column and text column basic info)
             summary_col1, summary_col2 = st.columns(2)
             
-            """ 
             with summary_col1:
-                st.markdown("**Data Summary:**")
-                st.write(f"• **Total rows:** {len(df):,}")
-                st.write(f"• **Valid texts:** {_total - _empty:,}")
-                st.write(f"• **Data quality:** {'Excellent' if _avg_len > 50 else 'Good' if _avg_len > 20 else 'Fair'}")
-            """
-            
-            with summary_col1:
-                st.markdown("**Subject ID Column Configuration:**")
-                if selected_id and selected_id != prompt_option:
-                    if selected_id == 'entryID':
-                        st.write("• **Source:** entryID (row numbers)")
-                        st.write("• **Type:** Auto-generated")
-                        st.write("• **Format:** 1, 2, 3, 4...")
+                st.markdown("Subject ID Column:")
+                sid = st.session_state.subjectID
+                if sid:
+                    if sid == 'entryID':
+                        st.write("• column name: *entryID*")
+                        st.write("• column type: (auto-generated) row numbers")
                     else:
-                        st.write(f"• **column name:** {selected_id}")
-                        col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[selected_id]) else 'Text'
-                        st.write(f"• **type:** {col_type}")
-                else:
-                    st.write("• **Type:** Auto-generated")
-                    st.write("• **Format:** ID_001, ID_002...")
-                    st.write("• **Count:** Sequential numbering")
+                        st.write(f"• column name: *{sid}*")
+                        col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[sid]) else 'Non-Numeric'
+                        st.write(f"• column type: {col_type}")
             
             with summary_col2:
-                st.markdown("**Text Column Configuration:**")
-                st.write(f"• **column name:** {selected_text_column}")
-                st.write(f"• **avg length:** {stats['avg_length']:.0f} characters")
-                st.write(f"• **avg words:** {stats['avg_words']:.1f} words")
+                st.markdown("Text Column:")
+                st.write(f"• column name: *{selected_text_column}*")
+                col_type = 'Text' if pd.api.types.is_object_dtype(df[selected_text_column]) or pd.api.types.is_string_dtype(df[selected_text_column]) else 'Non-Text'
+                st.write(f"• column type: {col_type}")
             
             # Auto-completion with celebration message
             st.markdown("<br>", unsafe_allow_html=True)
@@ -523,17 +536,13 @@ def tab_data_loading(backend_available):
                         "rows": len(df),
                         "columns": len(df.columns),
                         "text_column": selected_text_column,
-                        "id_column": selected_id,
+                        "id_column": st.session_state.subjectID,
                         "text_quality": stats
                     })
-                            
-                # AUTO-NAVIGATE: Add this here
-                #from utils.session_state import auto_navigate_to_next_available
-                #auto_navigate_to_next_available()
                 
                 # Show completion message
                 st.success("Data Loading Complete!")
-                st.info("Your data is ready! Head over to the **Preprocessing** tab to clean and prepare your text data for clustering.")
+                st.info("Proceed to the **Preprocessing** tab to clean and prepare your text data.")
                 
             else:
                 # Already completed - just show status

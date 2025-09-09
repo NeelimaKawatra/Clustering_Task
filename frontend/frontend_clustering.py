@@ -122,14 +122,6 @@ def tab_clustering(backend_available):
     texts = st.session_state.processed_texts
     st.success(f"Ready to cluster {len(texts)} preprocessed texts")
     
-    """old code (Show Preprocessing Summary)
-    # Show preprocessing summary
-    with st.expander("Preprocessing Summary"):
-        settings = st.session_state.preprocessing_settings
-        st.write(f"**Method:** {settings['method']}")
-        st.write(f"**Details:** {settings['details']}")
-        st.write(f"**Texts ready:** {len(texts)}")
-    """
     
     # Show clustering approach information
     show_clustering_approach_info()
@@ -314,8 +306,8 @@ def tab_clustering(backend_available):
                 st.balloons()
                 
                 # Beautiful completion message
-                st.success("Clustering Analysis Complete!")
-                st.info("Your texts have been successfully grouped into clusters! Visit the **Results** tab to explore your clusters, see detailed analysis, and export your findings.")
+                st.success("Clustering Complete!")
+                st.info("Proceed to the **Results** tab to explore your clusters, see detailed analysis, and export your findings.")
                 
                 # Clean up progress indicators
                 time.sleep(1)
@@ -365,5 +357,6 @@ def tab_clustering(backend_available):
         # Show the setup summary again for easy reference
         show_setup_summary(results)
         
-        st.info("**Clustering Complete! View detailed results in the Results tab!**")
-        st.info("If you would like to manually adjust the clustering results, go to the Finetuning tab.")
+        st.success("Clustering Complete!")
+        st.info("Proceed to the **Fine-tuning** tab to manually adjust the clustering results.")
+        st.info("Proceed to the **Results** tab to explore your clusters, see detailed analysis, and export your findings.")

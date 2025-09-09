@@ -18,7 +18,6 @@ class ResultsBackend:
 
         row_alignment = st.session_state.get('row_alignment', list(range(len(processed_texts))))
         original_texts = st.session_state.get('original_texts', [])
-        clean_ids = st.session_state.get('clean_ids', [])
         user_sel = st.session_state.get('user_selections', {})
 
         out_rows: List[Dict[str, Any]] = []
@@ -35,12 +34,15 @@ class ResultsBackend:
                 if 'entryID' in original_data.columns else (oidx + 1)
             )
 
-            # Stable subjectID (preferred user-selected column, else entryID)
-            uid_col = user_sel.get('id_column_choice')
-            if (not user_sel.get('id_is_auto_generated', True)) and uid_col and uid_col in original_data.columns:
+            # Use the resolved subject ID column; fall back to entryID only if missing
+            uid_col = user_sel.get('id_column_choice') or st.session_state.get('subjectID')
+            if uid_col in original_data.columns:
                 row['subjectID'] = original_data[uid_col].iloc[oidx]
             else:
-                row['subjectID'] = row['entryID']
+                row['subjectID'] = (
+                    original_data['entryID'].iloc[oidx]
+                    if 'entryID' in original_data.columns else (oidx + 1)
+                )
 
             user_text_col = user_sel.get('text_column_choice', text_column)
 
@@ -73,11 +75,15 @@ class ResultsBackend:
                     original_data['entryID'].iloc[oidx]
                     if 'entryID' in original_data.columns else (oidx + 1)
                 )
-                uid_col = user_sel.get('id_column_choice')
-                if (not user_sel.get('id_is_auto_generated', True)) and uid_col and uid_col in original_data.columns:
+                
+                uid_col = user_sel.get('id_column_choice') or st.session_state.get('subjectID')
+                if uid_col in original_data.columns:
                     row['subjectID'] = original_data[uid_col].iloc[oidx]
                 else:
-                    row['subjectID'] = row['entryID']
+                    row['subjectID'] = (
+                        original_data['entryID'].iloc[oidx]
+                        if 'entryID' in original_data.columns else (oidx + 1)
+                    )
 
                 user_text_col = user_sel.get('text_column_choice', text_column)
 

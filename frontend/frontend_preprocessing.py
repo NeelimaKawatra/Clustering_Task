@@ -45,7 +45,7 @@ def tab_preprocessing(backend_available):
         recommendations = {'suggested_method': 'basic'}
 
     # Show current data status
-    st.info(f"Ready to preprocess {len(original_texts)} texts from your data")
+    st.success(f"Ready to preprocess {len(original_texts)} texts from your data")
 
     # Preprocessing options
     with st.expander("Understanding Preprocessing Options"):

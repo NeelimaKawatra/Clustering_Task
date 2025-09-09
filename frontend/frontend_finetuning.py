@@ -104,14 +104,18 @@ def _initialize_backend() -> bool:
 
     clustering_results = st.session_state.clustering_results
     df = st.session_state.df
-    text_column = st.session_state.text_column
 
-    # Prefer user_selections to determine subject ID column (if not auto-generated)
-    user_selections = st.session_state.get("user_selections", {})
-    subject_id_column = None
-    if not user_selections.get("id_is_auto_generated", True):
+    subject_id_column = st.session_state.get("subjectID")
+    # Fallback: check user_selections
+    if not subject_id_column:
+        user_selections = st.session_state.get("user_selections", {})
         subject_id_column = user_selections.get("id_column_choice")
+    # Final fallback: entryID if present in df
+    if not subject_id_column and "entryID" in df.columns:
+        subject_id_column = "entryID"
 
+    text_column = st.session_state.text_column
+    
     success = backend.initialize_from_clustering_results(
         clustering_results, df, text_column, subject_id_column
     )
@@ -423,21 +427,21 @@ def create_finetuning_report(backend) -> str:
     modification_summary = backend.getModificationSummary()
 
     report = f"""
-FINE-TUNING SUMMARY REPORT
-=========================
+    FINE-TUNING SUMMARY REPORT
+    =========================
 
-Generated for session: {st.session_state.get('session_id', 'unknown')}
+    Generated for session: {st.session_state.get('session_id', 'unknown')}
 
-OVERVIEW:
-- Total Clusters: {len(all_clusters)}
-- Manual Clusters Created: {modification_summary.get('manual_clusters_created', 0)}
-- Clusters Merged: {modification_summary.get('clusters_merged', 0)}
-- Total Entries: {modification_summary.get('total_entries', 0)}
-- Entries in Manual Clusters: {modification_summary.get('entries_in_manual_clusters', 0)}
-- Modification Percentage: {modification_summary.get('modification_percentage', 0):.1f}%
+    OVERVIEW:
+    - Total Clusters: {len(all_clusters)}
+    - Manual Clusters Created: {modification_summary.get('manual_clusters_created', 0)}
+    - Clusters Merged: {modification_summary.get('clusters_merged', 0)}
+    - Total Entries: {modification_summary.get('total_entries', 0)}
+    - Entries in Manual Clusters: {modification_summary.get('entries_in_manual_clusters', 0)}
+    - Modification Percentage: {modification_summary.get('modification_percentage', 0):.1f}%
 
-CLUSTER DETAILS:
-"""
+    CLUSTER DETAILS:
+    """
     for cluster_id, cluster_data in all_clusters.items():
         cluster_name = cluster_data["cluster_name"]
         entry_count = len(cluster_data["entry_ids"])

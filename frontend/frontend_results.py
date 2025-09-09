@@ -159,13 +159,13 @@ def tab_results(backend_available):
     with st.expander("Results Columns Information"):
         if export_type == "summary":
             st.write("**Summary View Columns:**")
-            st.write("• entryID: Unique row identifier from dataset")
+            st.write("• entryID: Row numbers from your original dataset")
             st.write("• original_text: Raw text from dataset")
             st.write("• cluster_id: Assigned cluster number (-1 = outlier)")
             st.write("• cluster_label: Descriptive cluster name based on keywords")
         else:
             st.write("**Detailed Export Columns:**")
-            st.write("• entryID: Unique row identifier from dataset")
+            st.write("• entryID: Row numbers from your original dataset")
             st.write("• subjectID: Subject identifier chosen by user")
             st.write("• original_text: Raw text from dataset")
             st.write("• preprocessed_text: Text after preprocessing steps")
