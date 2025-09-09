@@ -302,7 +302,7 @@ def tab_data_loading(backend_available):
     # save the selected subject id to the session state 
     st.session_state.subjectID = selected_id
 
-    # save the selected subject id to the session state if the selected subject id is the prompt option or not set, set it to entryID (row numbers)
+    # fallback: save entryID (row numbers) as subjectID, if the selected subject id is the prompt option or not set
     if st.session_state.subjectID == prompt_option or not st.session_state.subjectID:
         st.session_state.subjectID = "entryID"
 
