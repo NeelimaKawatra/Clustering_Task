@@ -40,10 +40,10 @@ class DataLoadingBackend:
                 df = df.head(300)
                 st.warning(f"File truncated to 300 rows for performance (was {orig} rows)")
 
-            if len(df) < 10:
-                msg = f"File too small: {len(df)} rows. Need at least 10 rows."
-                self.logger.log_error("file_too_small", session_id, msg)
-                return False, pd.DataFrame(), msg
+            # if len(df) < 10:
+            #     msg = f"File too small: {len(df)} rows. Need at least 10 rows."
+            #     self.logger.log_error("file_too_small", session_id, msg)
+            #     return False, pd.DataFrame(), msg
 
             self.logger.log_activity("file_loaded_successfully", session_id, {
                 "rows": len(df),

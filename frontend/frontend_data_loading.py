@@ -73,7 +73,6 @@ def tab_data_loading(backend_available):
     Welcome to Clustery! Start by uploading your data file containing text you want to cluster.
     
     **Supported formats:** CSV, Excel (.xlsx, .xls)  
-    **Requirements:** At least 10 rows of text data
     
     **Note:** An `entryID` column (row numbers) will be automatically added to your data for tracking purposes.
     """)
@@ -109,7 +108,7 @@ def tab_data_loading(backend_available):
     if 'previous_file_key' in st.session_state:
         if current_file_key != st.session_state.previous_file_key and current_file_key is not None:
             # New file detected - this should reset everything
-            st.warning("🔄 New file detected")
+            #st.warning("🔄 New file detected")
             reset_analysis()
             file_changed = True
     else:

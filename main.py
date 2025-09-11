@@ -124,6 +124,20 @@ def initialize_app_with_progress():
 def create_sidebar_navigation():
     """Create clean sidebar with auto-navigation support"""
     
+    # Disable sidebar scrolling
+    st.markdown("""
+    <style>
+    section[data-testid="stSidebar"] {
+        overflow: hidden !important;
+        max-height: 100vh !important;
+    }
+    section[data-testid="stSidebar"] > div {
+        overflow: hidden !important;
+        height: 100vh !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     with st.sidebar:
         # App branding
         
@@ -259,29 +273,27 @@ def create_sidebar_navigation():
         
         st.markdown("---")
         
-        # Progress indicator
-        progress_steps = [data_complete, preprocessing_complete, clustering_complete]
-        completed_steps = sum(progress_steps)
-        progress_percentage = completed_steps / len(progress_steps)
-        
-        st.markdown("**Progress:**")
-        st.progress(progress_percentage)
-        st.caption(f"{completed_steps}/{len(progress_steps)} core steps completed")
-        
-        
-        st.markdown("---")
-        
-        from utils.session_state import reset_analysis
+            # # Progress indicator
+            # progress_steps = [data_complete, preprocessing_complete, clustering_complete]
+            # completed_steps = sum(progress_steps)
+            # progress_percentage = completed_steps / len(progress_steps)
+            
+            # st.markdown("**Progress:**")
+            # st.progress(progress_percentage)
+            # st.caption(f"{completed_steps}/{len(progress_steps)} core steps completed")
+            
+            
+            # st.markdown("---")
+            
+            # from utils.session_state import reset_analysis
 
-        # Reset button at the bottom  
-        if st.button("🔄 Start New Analysis", 
-                    help="Clear all data and start over",
-                    use_container_width=True,
-                    key="reset_analysis_btn"):   # ✅ renamed key
-            reset_analysis()   # ✅ call the function directly
-            st.rerun()
-
-
+            # # Reset button at the bottom  
+            # if st.button("🔄 Start New Analysis", 
+            #             help="Clear all data and start over",
+            #             use_container_width=True,
+            #             key="reset_analysis_btn"):   # ✅ renamed key
+            #     reset_analysis()   # ✅ call the function directly
+            #     st.rerun()
 # ============================================================================
 # MAIN CONTENT RENDERING
 # ============================================================================
@@ -381,6 +393,7 @@ def main():
     
     # Create sidebar navigation
     create_sidebar_navigation()
+    
     
     # Render main content
     render_main_content()
