@@ -116,13 +116,8 @@ def initialize_app_with_progress():
     
     return True
 
-# ============================================================================
-# SIDEBAR NAVIGATION
-# ============================================================================
-
-
 def create_sidebar_navigation():
-    """Create clean sidebar with auto-navigation support"""
+    """Create clean sidebar with simple permanent progress tracking"""
     
     # Disable sidebar scrolling
     st.markdown("""
@@ -140,7 +135,6 @@ def create_sidebar_navigation():
     
     with st.sidebar:
         # App branding
-        
         st.markdown("""
         <div style="text-align: center; padding: 20px 0;">
             <h1 style="color: #667eea; margin: 0; font-size: 1.8rem;">🔍 Clustery</h1>
@@ -150,156 +144,187 @@ def create_sidebar_navigation():
 
         st.markdown("---")
         
-        # # Backend status
-        # if st.session_state.get('BACKEND_AVAILABLE', False):
-        #     st.success("✅ Backend Connected")
-        # else:
-        #     st.error("❌ Backend Unavailable")
+        # Initialize permanent progress tracking - these NEVER get reset except by explicit user reset
+        if 'permanent_progress' not in st.session_state:
+            st.session_state.permanent_progress = {
+                'data_loading': False,
+                'preprocessing': False, 
+                'clustering': False
+            }
         
-        # st.markdown("---")
+        # Update permanent progress based on current completion (only goes UP, never DOWN)
+        current_data_complete = bool(st.session_state.get('tab_data_loading_complete', False))
+        current_preprocessing_complete = bool(st.session_state.get('tab_preprocessing_complete', False))
+        current_clustering_complete = bool(st.session_state.get('clustering_results') and 
+                                         st.session_state.clustering_results.get("success", False))
         
-        # Check completion status
-        data_complete = bool(st.session_state.get('tab_data_loading_complete', False))
-        preprocessing_complete = bool(st.session_state.get('tab_preprocessing_complete', False))
-        clustering_complete = bool(st.session_state.get('clustering_results') and 
-                                 st.session_state.clustering_results.get("success", False))
+        # Only update to True, never to False (except on explicit reset)
+        # Update permanent progress - always sync with current completion
+        st.session_state.permanent_progress['data_loading'] = current_data_complete
+        if current_preprocessing_complete:
+            st.session_state.permanent_progress['preprocessing'] = True
+        if current_clustering_complete:
+            st.session_state.permanent_progress['clustering'] = True
+        
+        # Get permanent status for display
+        data_ever_completed = st.session_state.permanent_progress['data_loading']
+        preprocessing_ever_completed = st.session_state.permanent_progress['preprocessing'] 
+        clustering_ever_completed = st.session_state.permanent_progress['clustering']
         
         # Initialize current page if not set
         if 'current_page' not in st.session_state:
             st.session_state.current_page = "data_loading"
-        
-        
-        # AUTO-NAVIGATION LOGIC - This is what was missing!
-        # Check if we should auto-navigate after completion
-        if st.session_state.get('should_navigate_next', False):
-            # Determine next step
-            if data_complete and not preprocessing_complete:
-                st.session_state.current_page = "preprocessing"
-            elif preprocessing_complete and not clustering_complete:
-                st.session_state.current_page = "clustering"  
-            elif clustering_complete and st.session_state.current_page != "results":
-                # Give user choice between results and finetuning
-                if st.session_state.current_page == "clustering":
-                    st.session_state.current_page = "finetuning"
-        
-            # Clear the navigation flag
-            st.session_state.should_navigate_next = False
 
         st.markdown("### Navigation")
         
-        # 1. Data Loading - always available
-        completion_indicator = "✅" if data_complete else "⭕"
+        # 1. Data Loading - Always accessible
+        completion_indicator = "✅" if current_data_complete else "⭕"
+        button_style = "primary" if st.session_state.current_page == "data_loading" else "secondary"
+        
         if st.button(f"{completion_indicator} Data Loading", 
-                    type="primary" if st.session_state.current_page == "data_loading" else "secondary",
+                    type=button_style,
                     use_container_width=True,
                     key="nav_data_loading"):
             st.session_state.current_page = "data_loading"
             st.rerun()
         
-        # 2. Preprocessing - accessible but show warning if prerequisites not met
-        completion_indicator = "✅" if preprocessing_complete else "⭕"
-        button_type = "primary" if st.session_state.current_page == "preprocessing" else "secondary"
+        # 2. Preprocessing - Accessible if ever completed data loading
+        completion_indicator = "✅" if current_preprocessing_complete else "⭕"
+        is_accessible = data_ever_completed
         
-        if st.button(f"{completion_indicator} Preprocessing", 
-                    type=button_type,
-                    use_container_width=True,
-                    key="nav_preprocessing"):
-            if not data_complete:
-                st.error("⚠️ Complete Data Loading first!")
-                st.session_state.current_page = "data_loading"
-            else:
+        if is_accessible:
+            button_style = "primary" if st.session_state.current_page == "preprocessing" else "secondary"
+            if st.button(f"{completion_indicator} Preprocessing", 
+                        type=button_style,
+                        use_container_width=True,
+                        key="nav_preprocessing"):
                 st.session_state.current_page = "preprocessing"
-            st.rerun()
+                st.rerun()
+        else:
+            if st.button(f"{completion_indicator} Preprocessing", 
+                        type="secondary",
+                        use_container_width=True,
+                        key="nav_preprocessing",
+                        disabled=True):
+                pass
         
-        # 3. Clustering - accessible but show warning if prerequisites not met
-        completion_indicator = "✅" if clustering_complete else "⭕"
-        button_type = "primary" if st.session_state.current_page == "clustering" else "secondary"
+        # 3. Clustering - Accessible if ever completed preprocessing
+        completion_indicator = "✅" if current_clustering_complete else "⭕"
+        is_accessible = preprocessing_ever_completed
         
-        if st.button(f"{completion_indicator} Clustering", 
-                    type=button_type,
-                    use_container_width=True,
-                    key="nav_clustering"):
-            if not preprocessing_complete:
-                st.error("⚠️ Complete Preprocessing first!")
-                if not data_complete:
-                    st.session_state.current_page = "data_loading"
-                else:
-                    st.session_state.current_page = "preprocessing"
-            else:
+        if is_accessible:
+            button_style = "primary" if st.session_state.current_page == "clustering" else "secondary"
+            if st.button(f"{completion_indicator} Clustering", 
+                        type=button_style,
+                        use_container_width=True,
+                        key="nav_clustering"):
                 st.session_state.current_page = "clustering"
-            st.rerun()
+                st.rerun()
+        else:
+            if st.button(f"{completion_indicator} Clustering", 
+                        type="secondary",
+                        use_container_width=True,
+                        key="nav_clustering",
+                        disabled=True):
+                pass
         
-        # 4. Fine-tuning - accessible but show warning if prerequisites not met
-        completion_indicator = "✅" if clustering_complete else "⭕"
-        button_type = "primary" if st.session_state.current_page == "finetuning" else "secondary"
+        # 4. Fine-tuning - Accessible if ever completed clustering
+        completion_indicator = "✅" if clustering_ever_completed else "⭕"
+        is_accessible = clustering_ever_completed
         
-        if st.button(f"{completion_indicator} Fine-tuning", 
-                    type=button_type,
-                    use_container_width=True,
-                    key="nav_finetuning"):
-            if not clustering_complete:
-                st.error("⚠️ Complete Clustering first!")
-                # Navigate to the incomplete step
-                if not data_complete:
-                    st.session_state.current_page = "data_loading"
-                elif not preprocessing_complete:
-                    st.session_state.current_page = "preprocessing"
-                else:
-                    st.session_state.current_page = "clustering"
-            else:
+        if is_accessible:
+            button_style = "primary" if st.session_state.current_page == "finetuning" else "secondary"
+            if st.button(f"{completion_indicator} Fine-tuning", 
+                        type=button_style,
+                        use_container_width=True,
+                        key="nav_finetuning"):
                 st.session_state.current_page = "finetuning"
-            st.rerun()
+                st.rerun()
+        else:
+            if st.button(f"{completion_indicator} Fine-tuning", 
+                        type="secondary",
+                        use_container_width=True,
+                        key="nav_finetuning",
+                        disabled=True):
+                pass
         
-        # 5. Results - accessible but show warning if prerequisites not met
-        completion_indicator = "✅" if clustering_complete else "⭕"
-        button_type = "primary" if st.session_state.current_page == "results" else "secondary"
+        # 5. Results - Accessible if ever completed clustering
+        completion_indicator = "✅" if clustering_ever_completed else "⭕"
+        is_accessible = clustering_ever_completed
         
-        if st.button(f"{completion_indicator} Results", 
-                    type=button_type,
-                    use_container_width=True,
-                    key="nav_results"):
-            if not clustering_complete:
-                st.error("⚠️ Complete Clustering first!")
-                # Navigate to the incomplete step
-                if not data_complete:
-                    st.session_state.current_page = "data_loading"
-                elif not preprocessing_complete:
-                    st.session_state.current_page = "preprocessing"
-                else:
-                    st.session_state.current_page = "clustering"
-            else:
+        if is_accessible:
+            button_style = "primary" if st.session_state.current_page == "results" else "secondary"
+            if st.button(f"{completion_indicator} Results", 
+                        type=button_style,
+                        use_container_width=True,
+                        key="nav_results"):
                 st.session_state.current_page = "results"
-            st.rerun()
+                st.rerun()
+        else:
+            if st.button(f"{completion_indicator} Results", 
+                        type="secondary",
+                        use_container_width=True,
+                        key="nav_results",
+                        disabled=True):
+                pass
         
         st.markdown("---")
         
-            # # Progress indicator
-            # progress_steps = [data_complete, preprocessing_complete, clustering_complete]
-            # completed_steps = sum(progress_steps)
-            # progress_percentage = completed_steps / len(progress_steps)
-            
-            # st.markdown("**Progress:**")
-            # st.progress(progress_percentage)
-            # st.caption(f"{completed_steps}/{len(progress_steps)} core steps completed")
-            
-            
-            # st.markdown("---")
-            
-            # from utils.session_state import reset_analysis
+        # Debug info
+        with st.expander("Debug", expanded=False):
+            st.write("Current Status:")
+            st.write(f"Data Complete: {current_data_complete}")
+            st.write(f"Preprocessing Complete: {current_preprocessing_complete}") 
+            st.write(f"Clustering Complete: {current_clustering_complete}")
+            st.write("Permanent Progress:")
+            st.write(f"Data Ever: {data_ever_completed}")
+            st.write(f"Preprocessing Ever: {preprocessing_ever_completed}")
+            st.write(f"Clustering Ever: {clustering_ever_completed}")
+        
+        # Reset button - THIS resets permanent progress too
+        from utils.session_state import reset_analysis
+        if st.button("🔄 Start New Analysis", 
+                    help="Clear all data and start over",
+                    use_container_width=True,
+                    key="reset_analysis_btn"):
+            # Reset permanent progress when doing full reset
+            st.session_state.permanent_progress = {
+                'data_loading': False,
+                'preprocessing': False, 
+                'clustering': False
+            }
+            reset_analysis()
+            st.rerun()
+def reset_downstream_from_data_loading():
+    """Reset everything downstream from data loading"""
+    import streamlit as st
+    
+    # Reset current completion status
+    st.session_state.tab_preprocessing_complete = False
+    if 'clustering_results' in st.session_state:
+        del st.session_state['clustering_results']
+    if 'processed_texts' in st.session_state:
+        del st.session_state['processed_texts']
+    
+    # Reset permanent progress for downstream steps
+    if 'permanent_progress' in st.session_state:
+        st.session_state.permanent_progress['preprocessing'] = False
+        st.session_state.permanent_progress['clustering'] = False
+    
+    # Clear finetuning
+    for key in list(st.session_state.keys()):
+        if key.startswith('finetuning_'):
+            del st.session_state[key]
+    
+    # Note: Don't call st.rerun() here - let the calling function handle it
 
-            # # Reset button at the bottom  
-            # if st.button("🔄 Start New Analysis", 
-            #             help="Clear all data and start over",
-            #             use_container_width=True,
-            #             key="reset_analysis_btn"):   # ✅ renamed key
-            #     reset_analysis()   # ✅ call the function directly
-            #     st.rerun()
+
 # ============================================================================
 # MAIN CONTENT RENDERING
 # ============================================================================
 
 def render_main_content():
-    """Render the main content area based on selected page"""
+    """Render the main content area based o n selected page"""
     
     current_page = st.session_state.get('current_page', 'data_loading')
     
