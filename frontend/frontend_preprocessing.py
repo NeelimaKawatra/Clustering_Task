@@ -1,4 +1,4 @@
-# tabs/preprocessing.py - Fixed version with simplified data alignment
+# tabs/preprocessing.py - Clean version without debug code
 import streamlit as st
 import pandas as pd
 
@@ -220,21 +220,16 @@ def show_processing_results():
     if len(processed_texts) >= 10:
         st.success("Preprocessing Complete!")
         
-        # Check previous states
+        # Check previous states to determine if we need to rerun
         was_tab_complete_before = st.session_state.get('tab_preprocessing_complete', False)
         was_permanent_complete_before = st.session_state.get('permanent_progress', {}).get('preprocessing', False)
         
-        # Always set completion flags
+        # Set completion flags
         st.session_state.tab_preprocessing_complete = True
         
-        # Always update permanent progress
+        # Update permanent progress
         if 'permanent_progress' in st.session_state:
             st.session_state.permanent_progress['preprocessing'] = True
-        
-        # DEBUG: Show the states
-        st.write("**DEBUG INFO:**")
-        st.write(f"- tab_preprocessing_complete: {was_tab_complete_before} → True")
-        st.write(f"- permanent_progress['preprocessing']: {was_permanent_complete_before} → True")
         
         # Track completion only once
         if not st.session_state.get('preprocessing_tracked', False):
@@ -248,14 +243,11 @@ def show_processing_results():
                 )
             st.session_state.preprocessing_tracked = True
         
-        # Trigger rerun if EITHER flag changed from False to True
+        # Trigger rerun if EITHER flag changed from False to True (to update sidebar)
         should_rerun = (not was_tab_complete_before) or (not was_permanent_complete_before)
         
         if should_rerun:
-            st.write("**TRIGGERING RERUN (something changed to True)**")
             st.rerun()
-        else:
-            st.write("**NOT TRIGGERING RERUN (both already True)**")
         
         st.info("Proceed to the **Clustering** tab to analyze your preprocessed texts.")
         
