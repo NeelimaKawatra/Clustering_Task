@@ -26,16 +26,13 @@ except Exception:
 # =============================================================================
 
 def tab_finetuning(backend_available: bool):
-    """Tab E: Human-in-the-Loop Fine-tuning tied to backend API"""
+    """Human-in-the-Loop Fine-tuning tied to backend API"""
 
     # Track tab visit
     if backend_available and hasattr(st.session_state, "backend") and st.session_state.backend:
         st.session_state.backend.track_activity(
             st.session_state.session_id, "tab_visit", {"tab_name": "finetuning"}
         )
-
-    #st.header("🧩 Fine-tuning")
-    #st.caption("Manually adjust your clustering results, rename clusters, move entries, and export fine-tuned results.")
 
     # Prerequisite check
     if not st.session_state.get("clustering_results") or not st.session_state.clustering_results.get("success", False):
@@ -129,7 +126,7 @@ def _initialize_backend() -> bool:
 
 def show_cluster_management_interface(backend):
     """Cluster summary + rename/delete + create + merge."""
-    st.subheader("Option 1: Cluster Management")
+    st.subheader("Cluster Management")
 
     # Summary
     with st.expander("Cluster Summary", expanded=True):
@@ -192,14 +189,7 @@ def show_cluster_management_interface(backend):
                     else:
                         st.error(message)
 
-            # Sample entries
-            entries_text = backend.getAllEntriesInCluster(cluster_id)
-            if entries_text:
-                st.markdown("**Entries (sample):**")
-                for j, text in enumerate(entries_text[:5]):
-                    st.text(f"• {text[:100]}{'...' if len(text) > 100 else ''}")
-                if len(entries_text) > 5:
-                    st.caption(f"... and {len(entries_text) - 5} more entries")
+            # DRAG & DROP
 
     # Create + Merge
     current_clusters = backend.getAllClusters()
@@ -354,6 +344,9 @@ def show_drag_drop_board(backend):
 
     # Build containers structure for streamlit-sortables
     containers = []
+    # Store mapping of display text to entry ID for parsing
+    text_to_entry_id = {}
+    
     for cid, cdata in clusters.items():
         items = []
         shown = 0
@@ -364,9 +357,11 @@ def show_drag_drop_board(backend):
             if not entry:
                 continue
             label_text = entry["entry_text"].replace("\n", " ").strip()
-            # Prefix every label with the entry ID so we can parse it later
-            label = f"{eid} • {label_text[:120]}{'…' if len(label_text) > 120 else ''}"
-            items.append(label)
+            # Show only text, truncate if too long
+            display_text = label_text[:120] + ('…' if len(label_text) > 120 else '')
+            items.append(display_text)
+            # Store mapping for later parsing
+            text_to_entry_id[display_text] = eid
             old_cluster_of[eid] = cid
             shown += 1
 
@@ -389,9 +384,9 @@ def show_drag_drop_board(backend):
     pending_moves: List[tuple[str, str]] = []
     for container in result:
         new_cid = container.get("id")
-        for label in container.get("items", []):
-            eid = label.split(" • ", 1)[0]
-            if old_cluster_of.get(eid) != new_cid:
+        for display_text in container.get("items", []):
+            eid = text_to_entry_id.get(display_text)
+            if eid and old_cluster_of.get(eid) != new_cid:
                 pending_moves.append((eid, new_cid))
 
     # Deduplicate
