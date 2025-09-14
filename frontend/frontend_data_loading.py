@@ -7,6 +7,38 @@ from utils.helpers import get_file_from_upload
 from utils.session_state import reset_analysis
 import pandas as pd
 from pandas.api.types import is_object_dtype, is_string_dtype
+from main import reset_downstream_from_data_loading
+
+def reset_downstream_from_data_loading():
+    """Reset everything downstream from data loading"""
+    # Clear results & processed artifacts
+    for k in ["clustering_results", "processed_texts", "finetuning_initialized"]:
+        if k in st.session_state:
+            del st.session_state[k]
+
+    # Mark steps incomplete (cover both old & new flags)
+    for k in [
+        "tab_preprocessing_complete", "tab_b_complete",
+        "tab_clustering_complete", "tab_c_complete",
+        "tab_results_complete", "tab_d_complete",
+    ]:
+        st.session_state[k] = False
+
+    # Permanent progress guard
+    if 'permanent_progress' in st.session_state:
+        st.session_state.permanent_progress.update({
+            'preprocessing': False,
+            'clustering': False,
+            'results': False,
+        })
+
+    # Clear any finetuning-* cached bits
+    for key in list(st.session_state.keys()):
+        if key.startswith('finetuning_'):
+            del st.session_state[key]
+
+    # Flag for UX tip later
+    st.session_state['data_loading_changes_made'] = True
 
 
 def get_safe_index(options_list, value, default=0):
@@ -24,42 +56,47 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
     
     # Define what constitutes a meaningful change
     prompt_values = {
-        "ID": ["-- Select a subject ID column--", None, "use entryID (row numbers) as subject IDs", "entryID"],
+        "ID": ["-- Select a subject ID column--", None, "use entryID (row numbers) as subject IDs"],
         "text": ["-- Select a text column --", None]
-        }
+    }
     
-    # Check if this is a meaningful change
+    # Check if this is a meaningful change (simplified logic)
     is_meaningful_change = (
         new_selection != current_selection and
         current_selection not in prompt_values.get(selection_type, []) and
-        new_selection not in prompt_values.get(selection_type, []) and
-        (st.session_state.get('tab_preprocessing_complete') or st.session_state.get('clustering_results'))
+        new_selection not in prompt_values.get(selection_type, [])
     )
     
-    if is_meaningful_change:
-        # Show warning about what will be reset
-        st.warning(f"⚠️ {selection_type.title()} column changed from '{current_selection}' to '{new_selection}'")
+    # Also trigger if there's any downstream work that would be affected
+    has_downstream_work = (
+        st.session_state.get('tab_preprocessing_complete') or 
+        st.session_state.get('clustering_results') or
+        st.session_state.get('processed_texts')
+    )
+    
+    if is_meaningful_change and has_downstream_work:
+        st.warning(f"⚠️ {selection_type.title()} column changed - resetting downstream work!")
         
-        with st.expander("What will be reset?", expanded=True):
-            reset_items = []
-            if st.session_state.get('clustering_results'):
-                reset_items.append("🔍 Clustering results")
-            if st.session_state.get('tab_preprocessing_complete'):
-                reset_items.append("🧹 Text preprocessing")
-            
-            if reset_items:
-                st.write("The following will be reset due to this change:")
-                for item in reset_items:
-                    st.write(f"• {item}")
-                st.write("You'll need to run these steps again with your new column selection.")
+        # Reset downstream work - call the local function (NO IMPORT)
+        reset_downstream_from_data_loading()
         
-        # Perform the cascade reset
-        from utils.session_state import cascade_from_data_loading
-        cascade_from_data_loading()
-        st.success("✅ Reset complete. Your new column selection is saved.")
+        # Reset data loading completion status
+        st.session_state.tab_data_loading_complete = False
+        if 'permanent_progress' in st.session_state:
+            st.session_state.permanent_progress['data_loading'] = False
+            st.session_state.permanent_progress['preprocessing'] = False
+            st.session_state.permanent_progress['clustering'] = False
         
-        # Mark that changes were made
-        st.session_state.data_loading_changes_made = True
+        # Reset the OTHER column selection
+        if selection_type == "ID":
+            st.session_state.text_column = "-- Select a text column --"
+        elif selection_type == "text":
+            st.session_state.subjectID = "-- Select a subject ID column--"
+        
+        st.success("✅ Reset complete. Please reselect your columns.")
+        
+        # Force immediate UI refresh
+        st.rerun()
 
 def tab_data_loading(backend_available):
     """Tab: Data Loading with persistent selections and smart change detection"""
@@ -73,6 +110,7 @@ def tab_data_loading(backend_available):
     Welcome to Clustery! Start by uploading your data file containing text you want to cluster.
     
     **Supported formats:** CSV, Excel (.xlsx, .xls)  
+    **Requirements:** Any number of rows with text data
     
     **Note:** An `entryID` column (row numbers) will be automatically added to your data for tracking purposes.
     """)
@@ -105,12 +143,23 @@ def tab_data_loading(backend_available):
     
     # Detect file change and reset analysis if needed
     file_changed = False
-    if 'previous_file_key' in st.session_state:
-        if current_file_key != st.session_state.previous_file_key and current_file_key is not None:
-            # New file detected - this should reset everything
-            #st.warning("🔄 New file detected")
-            reset_analysis()
-            file_changed = True
+    if current_file_key != st.session_state.previous_file_key and current_file_key is not None:
+        # New file detected - warn user and reset everything
+        if (st.session_state.get('tab_preprocessing_complete') or 
+            st.session_state.get('clustering_results') or 
+            st.session_state.get('finetuning_initialized')):
+            st.warning("🔄 New file uploaded! This will reset all your previous work.")
+        
+        # Import and call the reset function
+        from main import reset_downstream_from_data_loading
+        reset_downstream_from_data_loading()
+        
+        # Also clear the current data loading completion since we have new data
+        st.session_state.tab_data_loading_complete = False
+        st.session_state.permanent_progress['data_loading'] = False
+        
+        reset_analysis()
+        file_changed = True
     else:
         # First time loading
         st.session_state.previous_file_key = current_file_key
@@ -122,19 +171,64 @@ def tab_data_loading(backend_available):
         if not backend_available:
             st.error("Backend services not available. Please check backend installation.")
             return
-        
+
         try:
             temp_file_path = get_file_from_upload(uploaded_file)
-            
+
             with st.spinner("Loading and validating file..."):
-                success, df, message = st.session_state.backend.load_data(temp_file_path, st.session_state.session_id)
-            
+                success, df, message = st.session_state.backend.load_data(
+                    temp_file_path, st.session_state.session_id
+                )
+
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-            
+
             if not success:
                 st.error(f"{message}")
                 return
+
+            # Ensure entryID is present and clean (1..N, int)
+            df = df.copy()
+            if "entryID" not in df.columns:
+                df.insert(0, "entryID", range(1, len(df) + 1))
+            else:
+                # Recreate to guarantee consistent integer IDs starting at 1
+                df["entryID"] = range(1, len(df) + 1)
+
+            # Store dataframe and reset progress flags
+            st.session_state.df = df
+            st.session_state.previous_file_key = current_file_key
+            st.session_state.tab_data_loading_complete = False
+
+            # If you track overall progress, also reset here
+            if "permanent_progress" in st.session_state:
+                st.session_state.permanent_progress["data_loading"] = False
+                st.session_state.permanent_progress["preprocessing"] = False
+                st.session_state.permanent_progress["clustering"] = False
+
+            st.success(f"{message}")
+
+            # 🔄 IMPORTANT: force a rerun so the sidebar immediately reflects the reset status
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Error processing file: {str(e)}")
+            with st.expander("Troubleshooting Help"):
+                st.markdown("""
+                **Common issues and solutions:**
+                - **File format:** Ensure your file is a valid CSV or Excel format
+                - **Encoding:** Try saving your CSV with UTF-8 encoding
+                - **File size:** Large files (>10MB) may take longer to process
+                - **Column names:** Avoid special characters in column headers
+                - **Data quality:** Ensure your file isn't corrupted
+
+                **Need help?** Check that your file:
+                1. Opens correctly in Excel or a text editor
+                2. Has clear column headers
+                3. Contains the text data you want to analyze
+                """)
+            return
+
             
             # Add entryID column with original row numbers (now df is original df + "entryID" column)
             df = df.copy()
@@ -542,6 +636,9 @@ def tab_data_loading(backend_available):
                 # Show completion message
                 st.success("Data Loading Complete!")
                 st.info("Proceed to the **Preprocessing** tab to clean and prepare your text data.")
+                
+                # ✅ ADD THIS: Refresh sidebar immediately to show green button
+                st.rerun()
                 
             else:
                 # Already completed - just show status
