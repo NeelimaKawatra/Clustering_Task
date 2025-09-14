@@ -30,7 +30,7 @@ class FineTuningBackend:
 
             for pidx, (topic, text, prob) in enumerate(zip(topics, texts, probs)):
                 oidx = row_alignment[pidx] if pidx < len(row_alignment) else pidx
-                entry_id = clean_ids[oidx] if oidx < len(clean_ids) else f"ID_{oidx+1:03d}"
+                entry_id = clean_ids[oidx] if oidx < len(clean_ids) else f"{oidx+1:03d}"
 
                 subject_id = None
                 if subject_id_column and subject_id_column in original_data.columns and oidx < len(original_data):
@@ -73,7 +73,6 @@ class FineTuningBackend:
             return False
 
     # Reads
-    # Lookup entry by entryID (canonical)
     def getEntry(self, entryID: str) -> Optional[Dict[str, Any]]:
         """Lookup by entryID (canonical)."""
         if not self.initialized or entryID not in self.entries:
@@ -194,6 +193,46 @@ class FineTuningBackend:
 
         del self.clusters[clusterID]
         return True, f"Deleted cluster {clusterID} and moved {len(moved)} entries to outliers"
+
+    def recordClusterResults(self) -> dict:
+        """
+        Rebuild clusters' entry lists from the authoritative entry_to_cluster map,
+        then store a lightweight snapshot in session_state for later steps.
+        """
+        if not self.initialized:
+            return {}
+
+        # Reset membership lists
+        for cid in list(self.clusters.keys()):
+            self.clusters[cid]["entry_ids"] = []
+
+        # Reindex from entry_to_cluster (authoritative)
+        for eid, cid in self.entry_to_cluster.items():
+            if cid not in self.clusters:
+                # Minimal safety: create a container if moves targeted a new id
+                self.clusters[cid] = {
+                    "clusterID": cid,
+                    "cluster_name": cid,
+                    "entry_ids": [],
+                    "created_manually": True,
+                }
+            self.clusters[cid]["entry_ids"].append(eid)
+
+        # Persist a snapshot for downstream steps
+        snapshot = {
+            "entry_to_cluster": self.entry_to_cluster.copy(),
+            "clusters": {
+                cid: {
+                    "clusterID": c["clusterID"],
+                    "cluster_name": c["cluster_name"],
+                    "entry_ids": list(c["entry_ids"]),
+                }
+                for cid, c in self.clusters.items()
+            },
+        }
+        st.session_state["finetuning_last_results"] = snapshot
+        return snapshot
+
 
     # Export
     def exportFineTunedResults(self, original_data: pd.DataFrame, text_column: str, subject_id_column: str | None = None) -> pd.DataFrame:

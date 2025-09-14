@@ -92,11 +92,8 @@ def tab_clustering(backend_available):
     if backend_available:
         st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "clustering"})
     
-    #st.header("Clustering Configuration")
 
-   
-    # Add this at the beginning of tab_c_clustering function, after the track_activity call:
-
+    #ADD THIS AT THE BEGINNING OF tab_clustering function, after the track_activity call:
     # Check prerequisites first
     if not st.session_state.get('tab_data_loading_complete', False):
         st.error("Please complete Data Loading first!")

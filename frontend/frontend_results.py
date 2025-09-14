@@ -36,6 +36,15 @@ def tab_results(backend_available):
     
 
     results = st.session_state.clustering_results
+
+    """"
+    # if finetuning results are available, use them instead of clustering results
+    if st.session_state.finetuning_results:
+        results = st.session_state.finetuning_results
+    else:
+        results = st.session_state.clustering_results
+    """
+
     stats = results["statistics"]
     confidence = results["confidence_analysis"]
     performance = results["performance"]

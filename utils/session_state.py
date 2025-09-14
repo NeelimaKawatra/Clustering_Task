@@ -50,6 +50,10 @@ def initialize_session_state(backend_available=True):
     if 'clustering_results' not in st.session_state:
         st.session_state.clustering_results = None
     
+    # Finetuning results
+    if 'finetuning_results' not in st.session_state:
+        st.session_state.finetuning_results = None
+    
     # Tab completion status
     if 'tab_data_loading_complete' not in st.session_state:
         st.session_state.tab_data_loading_complete = False
@@ -103,7 +107,7 @@ def reset_analysis():
         'df', 'original_texts', 'processed_texts',
         'preprocessing_metadata', 'preprocessing_settings', 'row_alignment',
         'clustering_results', 'tab_data_loading_complete', 'tab_preprocessing_complete',
-        'tab_clustering_complete', 'previous_file_key', 'state_fingerprints'
+        'tab_clustering_complete', 'previous_file_key', 'state_fingerprints', 'finetuning_results'
     ]
     
     # FIXED: Also reset column selections when doing full analysis reset
@@ -152,7 +156,7 @@ def cascade_from_data_loading():
     
     downstream_keys = [
         'processed_texts', 'original_texts', 'preprocessing_settings', 'preprocessing_metadata',
-        'row_alignment', 'tab_preprocessing_complete', 'clustering_results', 'tab_clustering_complete'
+        'row_alignment', 'tab_preprocessing_complete', 'clustering_results', 'tab_clustering_complete', 'finetuning_results'
     ]
     
     reset_items = []
@@ -190,7 +194,7 @@ def cascade_from_data_loading():
 
 def cascade_from_preprocessing():
     """Reset downstream steps when preprocessing changes"""
-    downstream_keys = ['clustering_results', 'tab_clustering_complete']
+    downstream_keys = ['clustering_results', 'tab_clustering_complete', 'finetuning_results']
     
     reset_occurred = False
     for key in downstream_keys:
@@ -251,7 +255,7 @@ def detect_changes_and_cascade():
     
     # Cascade if there are significant changes AND downstream processing exists
     if (significant_changes and 
-        (st.session_state.get('tab_preprocessing_complete') or st.session_state.get('clustering_results'))):
+        (st.session_state.get('tab_preprocessing_complete') or st.session_state.get('clustering_results') or st.session_state.get('finetuning_results'))):
         cascade_from_data_loading()
     
     # Store current fingerprint
