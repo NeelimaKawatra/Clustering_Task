@@ -35,15 +35,14 @@ def tab_results(backend_available):
         return
     
 
-    results = st.session_state.clustering_results
+    # only get clutering results
+    #results = st.session_state.clustering_results
 
-    """"
-    # if finetuning results are available, use them instead of clustering results
-    if st.session_state.finetuning_results:
-        results = st.session_state.finetuning_results
-    else:
-        results = st.session_state.clustering_results
-    """
+    
+    # Prefer Fine-tuning snapshot if available; else use original clustering results
+    results = st.session_state.get("finetuning_results") or st.session_state.clustering_results
+
+    
 
     stats = results["statistics"]
     confidence = results["confidence_analysis"]
@@ -51,6 +50,10 @@ def tab_results(backend_available):
     
     # Results overview
     st.subheader("📈 Overview")
+
+    st.markdown("---")
+    st.caption(f"Source: {'Fine-tuning' if st.session_state.get('finetuning_results') else 'Clustering'}")
+    st.markdown("---")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:

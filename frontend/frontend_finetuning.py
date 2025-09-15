@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 from typing import Dict, Any, Optional, List, Tuple
 
+import re
 import pandas as pd
 import streamlit as st
 
@@ -61,16 +62,6 @@ def tab_finetuning(backend_available: bool):
     # ---- Entry management (search, inspect, move with controls) ----
     show_entry_management_interface(backend)
     st.markdown("---")
-
-    # ---- save results to session state ----
-    st.session_state.finetuning_results = backend
-
-    print("finetuning_results")
-    print(st.session_state.finetuning_results)
-    print("--------------------------------")
-    print("clustering_results")
-    print(st.session_state.clustering_results)
-    print("--------------------------------")
 
     # ---- Optional AI assist (uses lightweight embedded wrapper) ----
     with st.expander("🤖 AI Assist (optional)"):
@@ -172,6 +163,7 @@ def show_cluster_management_interface(backend):
                 success, result = backend.createNewCluster(new_cluster_name.strip())
                 if success:
                     st.success(f"Created cluster: {result}")
+                    save_finetuning_results_to_session(backend)
                     st.rerun()
                 else:
                     st.error(result)
@@ -198,6 +190,7 @@ def show_cluster_management_interface(backend):
                     success, result = backend.mergeClusters(cluster1, cluster2, merge_name or None)
                     if success:
                         st.success(f"Merged into cluster: {result}")
+                        save_finetuning_results_to_session(backend)
                         st.rerun()
                     else:
                         st.error(result)
@@ -227,6 +220,7 @@ def show_cluster_management_interface(backend):
                     success, message = backend.changeClusterName(cluster_id, new_name.strip())
                     if success:
                         st.success(message)
+                        save_finetuning_results_to_session(backend)
                         st.rerun()
                     else:
                         st.error(message)
@@ -243,6 +237,7 @@ def show_cluster_management_interface(backend):
                     success, message = backend.deleteCluster(cluster_id)
                     if success:
                         st.success(message)
+                        save_finetuning_results_to_session(backend)
                         st.rerun()
                     else:
                         st.error(message)
@@ -286,7 +281,7 @@ def show_drag_drop_board(backend):
         })
         orig_container_ids.append(cluster_id)
 
-    st.markdown("💡 Drag entries across clusters. Click **Apply changes** to commit.")
+    st.markdown("💡 You can drag entries across clusters. Click **Apply changes** to commit.")
 
     # display the DnD board
     result = sort_items(
@@ -318,17 +313,14 @@ def show_drag_drop_board(backend):
     # Apply changes
     if pending_moves:
         if st.button("Apply changes", use_container_width=True):
-            ok = fail = 0
+            ok  = 0
             for eid, target_cid in pending_moves:
-                success, msg = backend.moveEntry(eid, target_cid)
-                if success:
-                    ok += 1
-                else:
-                    fail += 1
-                    st.warning(f"Move failed for {eid}: {msg}")
+                success, _ = backend.moveEntry(eid, target_cid)
+                ok += int(success)
 
-            # Persist the changes
-            backend.recordClusterResults()
+            st.success(f"Applied {ok} change(s).")
+            # save the changes
+            save_finetuning_results_to_session(backend)
 
             # Blow away caches/snapshots if you use them anywhere
             try:
@@ -343,18 +335,10 @@ def show_drag_drop_board(backend):
             # Nudge any cached helpers
             st.session_state["finetuning_refresh_token"] = st.session_state.get("finetuning_refresh_token", 0) + 1
 
-            if ok:
-                st.success(f"Applied {ok} change(s).")
-            if fail:
-                st.error(f"{fail} change(s) failed.")
-
             # Hard refresh so all sections re-read backend state
             st.rerun()
     else:
         st.caption("No pending changes.")
-
-
-
 
 
 def show_entry_management_interface(backend):
@@ -406,6 +390,14 @@ def show_entry_management_interface(backend):
                 if entry_data:
                     st.text(f"Subject ID: {entry_data['subjectID']}")
 
+                    st.text_area(
+                        "Complete Text Entry",
+                        value=entry_data["entry_text"],
+                        height=120,
+                        disabled=True,
+                        key=f"text_{selected_entry}",
+                    )
+
                     cluster_id = entry_data.get("clusterID", "Unassigned")
                     cluster_info = all_clusters.get(cluster_id)
                     if cluster_info:
@@ -414,14 +406,6 @@ def show_entry_management_interface(backend):
                         st.text(f"Current Cluster: {cluster_id}")
 
                     st.text(f"Confidence: {entry_data.get('probability', 0):.2f}")
-
-                    st.text_area(
-                        "Complete Text Entry",
-                        value=entry_data["entry_text"],
-                        height=120,
-                        disabled=True,
-                        key=f"text_{selected_entry}",
-                    )
 
                     cluster_options = list(all_clusters.keys())
                     current_cluster = entry_data.get("clusterID")
@@ -443,9 +427,112 @@ def show_entry_management_interface(backend):
                             success, message = backend.moveEntry(selected_entry, target_cluster)
                             if success:
                                 st.success(message)
+                                save_finetuning_results_to_session(backend)
                                 st.rerun()
                             else:
                                 st.error(message)
+
+
+def build_finetuning_results_snapshot(backend) -> dict:
+    """
+    EXACT mirror of clustering results dict, derived from the Fine-tuning backend.
+    Converts string cluster IDs like 'cluster_0' / 'manual_7' / 'merged_8'
+    into integer topic IDs like 0,7,8 and -1 for outliers.
+    """
+    entries  = backend.getAllEntries()     # {entryID: {..., 'clusterID','probability','entry_text', ...}}
+    clusters = backend.getAllClusters()    # {clusterID: {'cluster_name','entry_ids', ...}}
+
+    def _cid_to_int(cid) -> int:
+        # Accept ints as-is
+        if isinstance(cid, int):
+            return cid
+        s = str(cid)
+        if s == "outliers":
+            return -1
+        # Take the trailing digits (cluster_12, manual_7, merged_8 -> 12,7,8)
+        m = re.search(r'(\d+)$', s)
+        return int(m.group(1)) if m else -1  # fallback (shouldn't occur with current backend IDs)
+
+    # Build aligned lists like clustering
+    # Order by entryID for determinism
+    sorted_eids = sorted(entries.keys(), key=lambda x: str(x))
+    texts, topics, probabilities = [], [], []
+
+    for eid in sorted_eids:
+        e   = entries[eid]
+        txt = e.get("entry_text") or e.get("original_text") or ""
+        cid = _cid_to_int(e.get("clusterID", -1))
+        p   = float(e.get("probability", 0.0) or 0.0)
+
+        texts.append(txt)
+        topics.append(cid)
+        probabilities.append(p)
+
+    # Stats (same semantics as clustering)
+    total_texts = len(texts)
+    outliers     = sum(1 for t in topics if t == -1)
+    clustered    = total_texts - outliers
+    n_clusters   = len({t for t in topics if t != -1})
+    success_rate = (clustered / total_texts * 100.0) if total_texts else 0.0
+
+    # Confidence buckets + average (same thresholds)
+    high = sum(1 for p in probabilities if p >= 0.7)
+    med  = sum(1 for p in probabilities if 0.3 <= p < 0.7)
+    low  = sum(1 for p in probabilities if p < 0.3)
+    avg_conf = (sum(probabilities) / len(probabilities)) if probabilities else 0.0
+
+    # topic_keywords must be keyed by INT cluster ids
+    topic_keywords = {}
+    for cid_str, c in clusters.items():
+        k = _cid_to_int(cid_str)
+        if k == -1:
+            topic_keywords[-1] = ["outlier"]
+        else:
+            nm = (c.get("cluster_name") or str(k)).strip()
+            topic_keywords[k] = [nm] if nm else [str(k)]
+
+    # carry through original clustering params so Results summary/report works
+    params_used = (st.session_state.get("clustering_results") or {}).get("parameters_used", {})
+
+    # Mirror clustering dict 1:1
+    return {
+        "success": True,
+        "topics": topics,                  # list[int]
+        "probabilities": probabilities,    # list[float]
+        "predictions": topics,             # list[int] (same as topics)
+        "texts": texts,                    # list[str]
+        "metadata": {
+            # keep keys clustering readers expect; fill what we can
+            "model_type": "Manual",
+            "n_features": (st.session_state.get("clustering_results") or {}).get("metadata", {}).get("n_features", 0),
+            "n_components": (st.session_state.get("clustering_results") or {}).get("metadata", {}).get("n_components", 0),
+            "topic_keywords": topic_keywords,
+        },
+        "statistics": {
+            "n_clusters": n_clusters,
+            "outliers": outliers,
+            "clustered": clustered,
+            "success_rate": success_rate,
+            "total_texts": total_texts,
+        },
+        "confidence_analysis": {
+            "high_confidence": high,
+            "medium_confidence": med,
+            "low_confidence": low,
+            "avg_confidence": avg_conf,
+        },
+        "performance": {                   # manual edits; no model timing
+            "total_time": 0.0,
+            "setup_time": 0.0,
+            "clustering_time": 0.0,
+        },
+        "parameters_used": params_used,
+    }
+
+
+
+def save_finetuning_results_to_session(backend) -> None:
+    st.session_state.finetuning_results = build_finetuning_results_snapshot(backend)
 
 
 def create_finetuning_report(backend) -> str:
