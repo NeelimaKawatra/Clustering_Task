@@ -51,15 +51,12 @@ def tab_finetuning(backend_available: bool):
 
     backend = get_finetuning_backend()
 
-    # ---- Cluster management (rename/delete/create/merge) ----
+    # ---- Cluster management integrated with drag & drop board ----
     show_cluster_management_interface(backend)
-    #st.markdown("---")
-
-    # ---- Drag & Drop board (optional, auto-enabled if addon is installed) ----
     show_drag_drop_board(backend)
     st.markdown("---")
 
-    # ---- Entry management (search, inspect, move with controls) ----
+    # ---- Entry management----
     show_entry_management_interface(backend)
     st.markdown("---")
 
@@ -123,6 +120,7 @@ def _initialize_backend() -> bool:
 
     if success:
         st.session_state.finetuning_initialized = True
+        save_finetuning_results_to_session(backend)
         return True
 
     return False
@@ -433,80 +431,68 @@ def show_entry_management_interface(backend):
                                 st.error(message)
 
 
+def _cid_to_int(cid) -> int:
+    if isinstance(cid, int):
+        return cid
+    s = str(cid)
+    if s == "outliers":
+        return -1
+    m = re.search(r'(\d+)$', s)
+    return int(m.group(1)) if m else -1
+
+
 def build_finetuning_results_snapshot(backend) -> dict:
     """
-    EXACT mirror of clustering results dict, derived from the Fine-tuning backend.
-    Converts string cluster IDs like 'cluster_0' / 'manual_7' / 'merged_8'
-    into integer topic IDs like 0,7,8 and -1 for outliers.
+    EXACT mirror of clustering results dict.
+    Writes SSOT labels into metadata['topic_keywords'] using current cluster_name(s).
     """
     entries  = backend.getAllEntries()     # {entryID: {..., 'clusterID','probability','entry_text', ...}}
     clusters = backend.getAllClusters()    # {clusterID: {'cluster_name','entry_ids', ...}}
 
-    def _cid_to_int(cid) -> int:
-        # Accept ints as-is
-        if isinstance(cid, int):
-            return cid
-        s = str(cid)
-        if s == "outliers":
-            return -1
-        # Take the trailing digits (cluster_12, manual_7, merged_8 -> 12,7,8)
-        m = re.search(r'(\d+)$', s)
-        return int(m.group(1)) if m else -1  # fallback (shouldn't occur with current backend IDs)
-
-    # Build aligned lists like clustering
-    # Order by entryID for determinism
+    # aligned lists
     sorted_eids = sorted(entries.keys(), key=lambda x: str(x))
     texts, topics, probabilities = [], [], []
-
     for eid in sorted_eids:
         e   = entries[eid]
         txt = e.get("entry_text") or e.get("original_text") or ""
         cid = _cid_to_int(e.get("clusterID", -1))
         p   = float(e.get("probability", 0.0) or 0.0)
+        texts.append(txt); topics.append(cid); probabilities.append(p)
 
-        texts.append(txt)
-        topics.append(cid)
-        probabilities.append(p)
-
-    # Stats (same semantics as clustering)
     total_texts = len(texts)
     outliers     = sum(1 for t in topics if t == -1)
     clustered    = total_texts - outliers
     n_clusters   = len({t for t in topics if t != -1})
     success_rate = (clustered / total_texts * 100.0) if total_texts else 0.0
 
-    # Confidence buckets + average (same thresholds)
     high = sum(1 for p in probabilities if p >= 0.7)
     med  = sum(1 for p in probabilities if 0.3 <= p < 0.7)
     low  = sum(1 for p in probabilities if p < 0.3)
     avg_conf = (sum(probabilities) / len(probabilities)) if probabilities else 0.0
 
-    # topic_keywords must be keyed by INT cluster ids
+    # SSOT labels: int cluster_id -> [display_name]
     topic_keywords = {}
     for cid_str, c in clusters.items():
-        k = _cid_to_int(cid_str)
-        if k == -1:
-            topic_keywords[-1] = ["outlier"]
-        else:
-            nm = (c.get("cluster_name") or str(k)).strip()
-            topic_keywords[k] = [nm] if nm else [str(k)]
+        k  = _cid_to_int(cid_str)
+        nm = (c.get("cluster_name") or ("Outliers" if k == -1 else str(k))).strip()
+        topic_keywords[k] = [nm] if nm else [("Outliers" if k == -1 else str(k))]
 
-    # carry through original clustering params so Results summary/report works
     params_used = (st.session_state.get("clustering_results") or {}).get("parameters_used", {})
+    prev_meta   = (st.session_state.get("clustering_results") or {}).get("metadata", {})
+    n_features  = int(prev_meta.get("n_features", 0))
+    n_components= int(prev_meta.get("n_components", 0))
 
-    # Mirror clustering dict 1:1
     return {
         "success": True,
         "topics": topics,                  # list[int]
         "probabilities": probabilities,    # list[float]
-        "predictions": topics,             # list[int] (same as topics)
+        "predictions": topics,             # list[int]
         "texts": texts,                    # list[str]
         "metadata": {
-            # keep keys clustering readers expect; fill what we can
             "model_type": "Manual",
-            "n_features": (st.session_state.get("clustering_results") or {}).get("metadata", {}).get("n_features", 0),
-            "n_components": (st.session_state.get("clustering_results") or {}).get("metadata", {}).get("n_components", 0),
-            "topic_keywords": topic_keywords,
+            "n_features": n_features,
+            "n_components": n_components,
+            "topic_keywords": topic_keywords,   # <-- SSOT label map
         },
         "statistics": {
             "n_clusters": n_clusters,
@@ -519,16 +505,15 @@ def build_finetuning_results_snapshot(backend) -> dict:
             "high_confidence": high,
             "medium_confidence": med,
             "low_confidence": low,
-            "avg_confidence": avg_conf,
+            "avg_confidence": avg_conf,         # required by Summary
         },
-        "performance": {                   # manual edits; no model timing
+        "performance": {                        # manual edits -> zeros
             "total_time": 0.0,
             "setup_time": 0.0,
             "clustering_time": 0.0,
         },
-        "parameters_used": params_used,
+        "parameters_used": params_used,         # required by Summary
     }
-
 
 
 def save_finetuning_results_to_session(backend) -> None:

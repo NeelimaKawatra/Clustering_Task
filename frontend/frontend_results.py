@@ -94,41 +94,49 @@ def tab_results(backend_available):
         st.metric("🔴 Low Confidence", f"{confidence['low_confidence']}", f"{low_pct:.1f}%")
         st.caption("Probability < 0.3")
     
-    # Get detailed cluster information from backend
-    cluster_details = st.session_state.backend.get_cluster_details(results, st.session_state.session_id)
     
-    # Cluster details
+    
+    #######################################################
     st.subheader("📝 Cluster Details")
+    #######################################################
+
+    # Cluster details (single list: folder-style header + details content)
+    cluster_details = st.session_state.backend.get_cluster_details(results, st.session_state.session_id)
+
+    def _render_cluster(cid: int, d: dict):
+        keywords = d.get("keywords") or []
+        name = keywords[0] if keywords else (f"cluster_{cid}" if cid != -1 else "Outliers")
+        size = d.get("size", 0)
+
+        with st.expander(f"📁 {name} ({size} entries)"):
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                #if keywords:
+                #    st.write("**🔤 Top Keywords:**")
+                #    st.write(", ".join(keywords))
+
+                st.write("**📄 Sample Texts:**")
+                for text, prob in d.get("top_texts", [])[:5]:
+                    badge = "🟢" if prob >= 0.7 else ("🟡" if prob >= 0.3 else "🔴")
+                    short = text[:150] + ("..." if len(text) > 150 else "")
+                    st.write(f"{badge} {short} *(conf: {prob:.2f})*")
+
+            with col2:
+                st.metric("Avg Confidence", f"{d.get('avg_confidence', 0.0):.2f}")
+                st.metric("High Confidence", d.get("high_confidence_count", 0))
+                st.metric("Cluster Size", size)
+
+    regular_ids = sorted([cid for cid in cluster_details.keys() if cid != -1])
+    for cid in regular_ids:
+        _render_cluster(cid, cluster_details[cid])
+
+    if -1 in cluster_details and cluster_details[-1].get("size", 0) > 0:
+        _render_cluster(-1, cluster_details[-1])
+
+
     
-    # Display each cluster
-    for cluster_id, details in cluster_details.items():
-        if cluster_id == -1:  # Outliers
-            if details['size'] > 0:
-                with st.expander(f"❓ **Outliers** ({details['size']} texts)"):
-                    st.write("**Texts that didn't fit into any cluster:**")
-                    for i, text in enumerate(details['texts'][:10]):
-                        st.write(f"• {text[:150]}{'...' if len(text) > 150 else ''}")
-                    if details['size'] > 10:
-                        st.write(f"... and {details['size'] - 10} more")
-        else:  # Regular clusters
-            keywords = ", ".join(details['keywords'])
-            with st.expander(f"📋 **Cluster {cluster_id}** ({details['size']} texts) - {keywords}"):
-                
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.write("**🔤 Top Keywords:**")
-                    st.write(keywords)
-                    
-                    st.write("**📄 Sample Texts:**")
-                    for text, prob in details['top_texts'][:5]:
-                        confidence_emoji = "🟢" if prob >= 0.7 else "🟡" if prob >= 0.3 else "🔴"
-                        st.write(f"{confidence_emoji} {text[:150]}{'...' if len(text) > 150 else ''} *(conf: {prob:.2f})*")
-                
-                with col2:
-                    st.metric("Avg Confidence", f"{details['avg_confidence']:.2f}")
-                    st.metric("High Confidence", details['high_confidence_count'])
-                    st.metric("Cluster Size", details['size'])
+
     
    # Export section with dual views
     st.markdown("---")
