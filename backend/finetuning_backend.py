@@ -124,13 +124,15 @@ class FineTuningBackend:
         if clusterID not in self.clusters: return False, f"Cluster {clusterID} does not exist"
 
         cur = self.entry_to_cluster.get(entryID)
-        if cur == clusterID: return True, f"Entry {entryID} is already in cluster {clusterID}"
+        target_cluster_name = self.clusters[clusterID]["cluster_name"]
+        if cur == clusterID: 
+            return True, f"Entry {entryID} is already in cluster '{target_cluster_name}'"
         if cur and cur in self.clusters:
             if entryID in self.clusters[cur]["entry_ids"]:
                 self.clusters[cur]["entry_ids"].remove(entryID)
         self.clusters[clusterID]["entry_ids"].append(entryID)
         self.entry_to_cluster[entryID] = clusterID
-        return True, f"Successfully moved entry {entryID} to cluster {clusterID}"
+        return True, f"Successfully moved entry {entryID} to cluster '{target_cluster_name}'"
 
     def mergeClusters(self, c1: str, c2: str, new_name: str | None = None) -> Tuple[bool, str]:
         if not self.initialized: return False, "Fine-tuning backend not initialized"
@@ -152,7 +154,7 @@ class FineTuningBackend:
         for eid in merged_entries:
             self.entry_to_cluster[eid] = new_id
         del self.clusters[c1]; del self.clusters[c2]
-        return True, new_id
+        return True, self.clusters[new_id]["cluster_name"]
 
     def changeClusterName(self, clusterID: str, newName: str) -> Tuple[bool, str]:
         if not self.initialized: return False, "Fine-tuning backend not initialized"
@@ -172,7 +174,7 @@ class FineTuningBackend:
             "entry_ids": [],
             "created_manually": True
         }
-        return True, new_id
+        return True, cluster_name.strip()
 
     def deleteCluster(self, clusterID: str) -> Tuple[bool, str]:
         if not self.initialized: return False, "Fine-tuning backend not initialized"
@@ -186,13 +188,14 @@ class FineTuningBackend:
                 "created_manually": False
             }
 
+        cluster_name = self.clusters[clusterID]["cluster_name"]
         moved = list(self.clusters[clusterID]["entry_ids"])
         for eid in moved:
             self.entry_to_cluster[eid] = "outliers"
             self.clusters["outliers"]["entry_ids"].append(eid)
 
         del self.clusters[clusterID]
-        return True, f"Deleted cluster {clusterID} and moved {len(moved)} entries to outliers"
+        return True, f"Deleted cluster '{cluster_name}' and moved {len(moved)} entries to outliers"
 
     def recordClusterResults(self) -> dict:
         """

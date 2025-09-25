@@ -31,6 +31,7 @@ class DataLoadingBackend:
             # ✅ Make DataFrame Arrow-friendly to avoid PyArrow conversion errors
             df = self._make_arrow_safe(df)
 
+            trunc_note = ""
             if len(df) > 300:
                 self.logger.log_activity("file_size_warning", session_id, {
                     "original_rows": len(df),
@@ -38,19 +39,15 @@ class DataLoadingBackend:
                 })
                 orig = len(df)
                 df = df.head(300)
-                st.warning(f"File truncated to 300 rows for performance (was {orig} rows)")
-
-            # if len(df) < 10:
-            #     msg = f"File too small: {len(df)} rows. Need at least 10 rows."
-            #     self.logger.log_error("file_too_small", session_id, msg)
-            #     return False, pd.DataFrame(), msg
+                # Do not emit a transient Streamlit warning; include it in the return message instead.
+                trunc_note = f" (truncated to 300 rows from {orig})"
 
             self.logger.log_activity("file_loaded_successfully", session_id, {
                 "rows": len(df),
                 "columns": len(df.columns),
                 "memory_usage_kb": float(df.memory_usage(deep=True).sum()) / 1024.0
             })
-            return True, df, f"File loaded successfully"
+            return True, df, f"File loaded successfully{trunc_note}"
 
         except Exception as e:
             msg = f"Error loading file: {e}"

@@ -293,8 +293,18 @@ def create_sidebar_navigation():
                 'preprocessing': False, 
                 'clustering': False
             }
+            
+            # reset the analysis
+            from utils.session_state import reset_analysis
             reset_analysis()
+
+            # ✅ show one-shot blue banner and clear any old alerts
+            st.session_state.file_uploader_reset = True
+            st.session_state.file_reset_reason = "start_new_analysis"
+            st.session_state["data_loading_alerts"] = []
             st.rerun()
+
+
 def reset_downstream_from_data_loading():
     """Reset everything downstream from data loading"""
     import streamlit as st

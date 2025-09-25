@@ -99,6 +99,10 @@ def initialize_session_state(backend_available=True):
     if 'file_uploader_reset' not in st.session_state:
         st.session_state.file_uploader_reset = False
 
+    # add a reason for the reset, only the button should set this
+    if 'file_reset_reason' not in st.session_state:
+        st.session_state.file_reset_reason = None
+
 def reset_analysis():
     """Reset all analysis data while preserving navigation state - FIXED VERSION"""
     
@@ -149,7 +153,12 @@ def reset_analysis():
     
     # Generate new file uploader key to force file uploader to clear
     st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
-    st.session_state.file_uploader_reset = True
+    # Do not raise the UI banner here; the button does it.
+    st.session_state.file_uploader_reset = False
+    # clears the UI banner
+    st.session_state["data_loading_alerts"] = []
+    st.session_state["uploaded_filename"] = None
+    st.session_state["file_reset_reason"] = None
 
 def cascade_from_data_loading():
     """Reset downstream steps when data changes - FIXED to preserve column selections"""
@@ -302,7 +311,8 @@ def check_automatic_completion():
 def clear_file_uploader():
     """Clear file uploader state by generating a new key"""
     st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
-    st.session_state.file_uploader_reset = True
+    # Do not set the UI banner flag here; only the button should.
+    #st.session_state.file_uploader_reset = True
 
 def reset_file_state():
     """Reset only file-related state variables"""
@@ -322,7 +332,8 @@ def reset_file_state():
         st.session_state.tab_data_loading_complete = False
     
     # Set flag to show reset message
-    st.session_state.file_uploader_reset = True
+    #st.session_state.file_uploader_reset = True
+    # Do not set the UI banner flag here; only the button should.
 
 def preserve_column_selections():
     """Helper to preserve column selections during navigation - used internally"""

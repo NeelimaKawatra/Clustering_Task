@@ -115,6 +115,25 @@ def tab_data_loading(backend_available):
     **Note:** An `entryID` column (row numbers) will be automatically added to your data for tracking purposes.
     """)
     
+    # --- Handle explicit 'Start New Analysis' first ---
+    if (st.session_state.get("file_uploader_reset")
+        and st.session_state.get("file_reset_reason") == "start_new_analysis"):
+        st.info("📁 File cleared. Please upload a new file to restart the analysis.")
+        st.session_state["file_uploader_reset"] = False
+        st.session_state["file_reset_reason"] = None
+        st.session_state["data_loading_alerts"] = []  
+
+    # --- Persistent alerts (survive reruns) ---
+    alerts = st.session_state.get("data_loading_alerts", [])
+    for kind, text in alerts:
+        if kind == "warning":
+            st.warning(text)
+        elif kind == "success":
+            st.success(text)
+        else:
+            st.info(text)
+
+
     # Check if data already exists in session state
     data_already_loaded = 'df' in st.session_state and st.session_state.df is not None
     
@@ -123,11 +142,11 @@ def tab_data_loading(backend_available):
     upload_key = st.session_state.get('file_uploader_key', 'data_file_uploader')
     
     # Show message if file uploader was recently reset
-    if 'file_uploader_reset' in st.session_state and st.session_state.file_uploader_reset:
+    if st.session_state.get('file_uploader_reset') and st.session_state.get('file_reset_reason') == "start_new_analysis":
         st.info("📁 File cleared. Please upload a new file to restart the analysis.")
         st.session_state.file_uploader_reset = False
+        st.session_state.file_reset_reason = None
     
-
     uploaded_file = st.file_uploader(
         "Choose your data file",
         type=["csv", "xlsx", "xls"],
@@ -160,6 +179,9 @@ def tab_data_loading(backend_available):
         
         reset_analysis()
         file_changed = True
+        # clear previous alerts when a new file is uploaded
+        st.session_state["data_loading_alerts"] = []
+
     else:
         # First time loading
         st.session_state.previous_file_key = current_file_key
@@ -199,6 +221,7 @@ def tab_data_loading(backend_available):
             st.session_state.df = df
             st.session_state.previous_file_key = current_file_key
             st.session_state.tab_data_loading_complete = False
+            st.session_state.uploaded_filename = uploaded_file.name
 
             # If you track overall progress, also reset here
             if "permanent_progress" in st.session_state:
@@ -206,9 +229,28 @@ def tab_data_loading(backend_available):
                 st.session_state.permanent_progress["preprocessing"] = False
                 st.session_state.permanent_progress["clustering"] = False
 
-            st.success(f"{message}")
-
+            #st.success(f"{message}")
             # 🔄 IMPORTANT: force a rerun so the sidebar immediately reflects the reset status
+            #st.rerun()
+
+            # Build persistent alerts
+            alerts = []
+            if "truncated to 300" in (message or "").lower():
+                # Make a yellow warning + green success
+                # Extract the truncation phrase if present
+                try:
+                    # message looks like: "File loaded successfully (truncated to 300 rows from X)"
+                    trunc = message.split("File loaded successfully", 1)[1].strip()
+                    trunc = trunc.strip("()")
+                except Exception:
+                    trunc = "File truncated to 300 rows"
+                alerts.append(("warning", f"{trunc.capitalize()}." if not trunc.endswith(".") else trunc))
+                alerts.append(("success", "File uploaded successfully."))
+            else:
+                alerts.append(("success", message or "File uploaded successfully."))
+
+            st.session_state["data_loading_alerts"] = alerts
+            # Rerun so sidebar status updates; alerts will re-render on next run
             st.rerun()
 
         except Exception as e:
@@ -288,7 +330,7 @@ def tab_data_loading(backend_available):
     # Show file metrics in columns
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
     with metric_col1:
-        file_name = getattr(uploaded_file, 'name', 'Loaded Data') if uploaded_file else 'Loaded Data'
+        file_name = st.session_state.get("uploaded_filename", "Loaded Data")
         st.metric("File Name", file_name)
     with metric_col2:
         st.metric("Total Rows", len(df))
