@@ -118,6 +118,16 @@ class FineTuningBackend:
         }
 
     # Writes
+    def is_duplicate_name(self, name: str, exclude_id: str | None = None) -> bool:
+        """Check if cluster name already exists (case-insensitive)."""
+        norm = name.strip().lower()
+        for cid, c in self.clusters.items():
+            if exclude_id and cid == exclude_id:
+                continue
+            if c["cluster_name"].strip().lower() == norm:
+                return True
+        return False
+
     def moveEntry(self, entryID: str, clusterID: str) -> Tuple[bool, str]:
         if not self.initialized: return False, "Fine-tuning backend not initialized"
         if entryID not in self.entries: return False, f"Entry {entryID} does not exist"
@@ -135,10 +145,16 @@ class FineTuningBackend:
         return True, f"Successfully moved entry {entryID} to cluster '{target_cluster_name}'"
 
     def mergeClusters(self, c1: str, c2: str, new_name: str | None = None) -> Tuple[bool, str]:
-        if not self.initialized: return False, "Fine-tuning backend not initialized"
-        if c1 not in self.clusters: return False, f"Cluster {c1} does not exist"
-        if c2 not in self.clusters: return False, f"Cluster {c2} does not exist"
-        if c1 == c2: return False, "Cannot merge cluster with itself"
+        if not self.initialized: 
+            return False, "Fine-tuning backend not initialized"
+        if c1 not in self.clusters: 
+            return False, f"Cluster {c1} does not exist"
+        if c2 not in self.clusters: 
+            return False, f"Cluster {c2} does not exist"
+        if c1 == c2: 
+            return False, "Cannot merge cluster with itself"
+        if new_name and self.is_duplicate_name(new_name):
+            return False, f"Cluster name '{new_name}' already exists"
 
         new_id = f"merged_{self.next_cluster_id}"
         self.next_cluster_id += 1
@@ -146,7 +162,7 @@ class FineTuningBackend:
 
         self.clusters[new_id] = {
             "clusterID": new_id,
-            "cluster_name": new_name or f"Merged_{c1}_{c2}",
+            "cluster_name": new_name.strip() if new_name else f"Merged_{c1}_{c2}",
             "entry_ids": merged_entries,
             "created_manually": True,
             "merged_from": [c1, c2]
@@ -157,16 +173,25 @@ class FineTuningBackend:
         return True, self.clusters[new_id]["cluster_name"]
 
     def changeClusterName(self, clusterID: str, newName: str) -> Tuple[bool, str]:
-        if not self.initialized: return False, "Fine-tuning backend not initialized"
-        if clusterID not in self.clusters: return False, f"Cluster {clusterID} does not exist"
-        if not newName or not newName.strip(): return False, "New name cannot be empty"
+        if not self.initialized: 
+            return False, "Fine-tuning backend not initialized"
+        if clusterID not in self.clusters: 
+            return False, f"Cluster {clusterID} does not exist"
+        if not newName or not newName.strip(): 
+            return False, "New name cannot be empty"
+        if self.is_duplicate_name(newName, clusterID):
+            return False, "Duplicate name"
         old = self.clusters[clusterID]["cluster_name"]
         self.clusters[clusterID]["cluster_name"] = newName.strip()
         return True, f"Successfully changed cluster name from '{old}' to '{newName}'"
 
     def createNewCluster(self, cluster_name: str) -> Tuple[bool, str]:
-        if not self.initialized: return False, "Fine-tuning backend not initialized"
-        if not cluster_name or not cluster_name.strip(): return False, "Cluster name cannot be empty"
+        if not self.initialized: 
+            return False, "Fine-tuning backend not initialized"
+        if not cluster_name or not cluster_name.strip(): 
+            return False, "Cluster name cannot be empty"
+        if self.is_duplicate_name(cluster_name):
+            return False, f"Cluster name '{cluster_name}' already exists"
         new_id = f"manual_{self.next_cluster_id}"; self.next_cluster_id += 1
         self.clusters[new_id] = {
             "clusterID": new_id,

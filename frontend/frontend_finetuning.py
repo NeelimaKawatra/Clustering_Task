@@ -124,8 +124,9 @@ def _initialize_backend() -> bool:
     return False
 
 
+
 def show_cluster_management_interface(backend):
-    """Cluster summary + rename/delete + create + merge."""
+    #Cluster summary + rename/delete + create + merge.
 
     # Display any pending success/error messages
     if "finetuning_success_message" in st.session_state:
@@ -153,6 +154,54 @@ def show_cluster_management_interface(backend):
         with col4:
             modification_pct = modification_summary.get("modification_percentage", 0)
             st.metric("Modified Entries", f"{modification_pct:.1f}%")
+    
+    # Rename / delete per cluster
+    all_clusters = backend.getAllClusters()
+    with st.expander("💡 You can view, rename, check confidence, and delete clusters:"):
+        for i, (cluster_id, cluster_data) in enumerate(all_clusters.items()):
+            key_prefix = f"{cluster_id}_{i}"
+            with st.expander(
+                f"🗂️ {cluster_data['cluster_name']} ({len(cluster_data['entry_ids'])} entries)",
+                expanded=False,
+            ):
+                col1, col2, col3 = st.columns([2, 1, 1])
+
+                # Rename
+                with col1:
+                    new_name = st.text_input(
+                        "Cluster name", value=cluster_data["cluster_name"], key=f"name_{key_prefix}"
+                    )
+                    changed = new_name.strip() != cluster_data["cluster_name"]
+                    clicked = st.button(
+                        "Rename", key=f"update_name_{key_prefix}", disabled=not changed
+                    )
+                    if clicked:
+                        success, message = backend.changeClusterName(cluster_id, new_name.strip())
+                        if success:
+                            st.session_state.finetuning_success_message = f"✏️ {message}"
+                            save_finetuning_results_to_session(backend)
+                            st.rerun()
+                        else:
+                            st.session_state.finetuning_error_message = message
+                            st.rerun()
+
+                # Stats
+                with col2:
+                    stats = backend.getClusterStatistics(cluster_id)
+                    if stats:
+                        st.metric("Avg Confidence", f"{stats['avg_probability']:.2f}")
+
+                # Delete
+                with col3:
+                    if st.button("Delete Cluster", key=f"delete_{key_prefix}"):
+                        success, message = backend.deleteCluster(cluster_id)
+                        if success:
+                            st.session_state.finetuning_success_message = f"🗑️ {message}"
+                            save_finetuning_results_to_session(backend)
+                            st.rerun()
+                        else:
+                            st.session_state.finetuning_error_message = message
+                            st.rerun()
 
     # Create + Merge
     with st.expander("💡 You can create new clusters or merge existing clusters:"):
@@ -209,54 +258,6 @@ def show_cluster_management_interface(backend):
                     else:
                         st.session_state.finetuning_error_message = result
                         st.rerun()
-    
-    # Rename / delete per cluster
-    all_clusters = backend.getAllClusters()
-    with st.expander("💡 You can rename, check confidence, and delete clusters:"):
-        for i, (cluster_id, cluster_data) in enumerate(all_clusters.items()):
-            key_prefix = f"{cluster_id}_{i}"
-            with st.expander(
-                f"🗂️ {cluster_data['cluster_name']} ({len(cluster_data['entry_ids'])} entries)",
-                expanded=False,
-            ):
-                col1, col2, col3 = st.columns([2, 1, 1])
-
-                # Rename
-                with col1:
-                    new_name = st.text_input(
-                        "Cluster name", value=cluster_data["cluster_name"], key=f"name_{key_prefix}"
-                    )
-                    changed = new_name.strip() != cluster_data["cluster_name"]
-                    clicked = st.button(
-                        "Update Name", key=f"update_name_{key_prefix}", disabled=not changed
-                    )
-                    if clicked:
-                        success, message = backend.changeClusterName(cluster_id, new_name.strip())
-                        if success:
-                            st.session_state.finetuning_success_message = f"✏️ {message}"
-                            save_finetuning_results_to_session(backend)
-                            st.rerun()
-                        else:
-                            st.session_state.finetuning_error_message = message
-                            st.rerun()
-
-                # Stats
-                with col2:
-                    stats = backend.getClusterStatistics(cluster_id)
-                    if stats:
-                        st.metric("Avg Confidence", f"{stats['avg_probability']:.2f}")
-
-                # Delete
-                with col3:
-                    if st.button("Delete", key=f"delete_{key_prefix}"):
-                        success, message = backend.deleteCluster(cluster_id)
-                        if success:
-                            st.session_state.finetuning_success_message = f"🗑️ {message}"
-                            save_finetuning_results_to_session(backend)
-                            st.rerun()
-                        else:
-                            st.session_state.finetuning_error_message = message
-                            st.rerun()
 
 
 def show_drag_drop_board(backend):

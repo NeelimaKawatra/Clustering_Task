@@ -685,7 +685,7 @@ def tab_data_loading(backend_available):
             else:
                 # Already completed - just show status
                 st.success("Data Loading Complete!")
-                st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
+                st.info("Proceed to the **Preprocessing** tab to clean and prepare your text data.")
             
             # Show feedback if changes were made during this session
             if st.session_state.get('data_loading_changes_made'):

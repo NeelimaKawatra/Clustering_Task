@@ -250,8 +250,6 @@ def create_sidebar_navigation():
                         disabled=True):
                 pass
         
-        
-        
         # 5. Results - Accessible if finetuning is visited
         finetuning_ever_visited = st.session_state.get("finetuning_ever_visited", False)
         results_ever_visited = st.session_state.get("results_ever_visited", False)
