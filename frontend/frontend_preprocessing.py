@@ -217,7 +217,7 @@ def show_processing_results():
             st.warning("No valid comparisons to show")
 
     # Quality check and completion
-    if len(processed_texts) >= 10:
+    if len(processed_texts) >= 0:
         st.success("Preprocessing Complete!")
         
         # Check previous states to determine if we need to rerun
