@@ -269,7 +269,7 @@ def show_clustering_results():
     # Next steps
     st.markdown("---")
     st.success("Clustering Complete!")
-    st.info("You can now proceed to **Fine-tuning** to manually adjust results or **Results** to export your findings.")
+    st.info("Proceed to **Fine-tuning** to explore options to manually adjust cluster assignments.")
 
 def show_cluster_details_table(cluster_details, results):
     """Show detailed cluster information in a table format"""

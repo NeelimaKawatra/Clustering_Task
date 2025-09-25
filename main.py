@@ -228,29 +228,35 @@ def create_sidebar_navigation():
                         disabled=True):
                 pass
         
-        # 4. Fine-tuning - Accessible if ever completed clustering
-        completion_indicator = "✅" if clustering_ever_completed else "⭕"
+        # 4. Fine-tuning - Accessible if clustering was ever completed
+        finetuning_ever_visited = st.session_state.get("finetuning_ever_visited", False)
+        completion_indicator = "✅" if finetuning_ever_visited else "⭕"
         is_accessible = clustering_ever_completed
         
         if is_accessible:
             button_style = "primary" if st.session_state.current_page == "finetuning" else "secondary"
-            if st.button(f"{completion_indicator} Fine-tuning", 
+            if st.button(f"{completion_indicator} Fine-tuning",
                         type=button_style,
                         use_container_width=True,
                         key="nav_finetuning"):
+                st.session_state["finetuning_ever_visited"] = True
                 st.session_state.current_page = "finetuning"
                 st.rerun()
         else:
-            if st.button(f"{completion_indicator} Fine-tuning", 
+            if st.button(f"{completion_indicator} Fine-tuning",
                         type="secondary",
                         use_container_width=True,
                         key="nav_finetuning",
                         disabled=True):
                 pass
         
-        # 5. Results - Accessible if ever completed clustering
-        completion_indicator = "✅" if clustering_ever_completed else "⭕"
-        is_accessible = clustering_ever_completed
+        
+        
+        # 5. Results - Accessible if finetuning is visited
+        finetuning_ever_visited = st.session_state.get("finetuning_ever_visited", False)
+        results_ever_visited = st.session_state.get("results_ever_visited", False)
+        completion_indicator = "✅" if results_ever_visited else "⭕"
+        is_accessible = finetuning_ever_visited
         
         if is_accessible:
             button_style = "primary" if st.session_state.current_page == "results" else "secondary"
@@ -258,6 +264,7 @@ def create_sidebar_navigation():
                         type=button_style,
                         use_container_width=True,
                         key="nav_results"):
+                st.session_state["results_ever_visited"] = True
                 st.session_state.current_page = "results"
                 st.rerun()
         else:
@@ -298,7 +305,7 @@ def create_sidebar_navigation():
             from utils.session_state import reset_analysis
             reset_analysis()
 
-            # ✅ show one-shot blue banner and clear any old alerts
+            # show one-shot blue reset confirmation and clear any old alerts
             st.session_state.file_uploader_reset = True
             st.session_state.file_reset_reason = "start_new_analysis"
             st.session_state["data_loading_alerts"] = []

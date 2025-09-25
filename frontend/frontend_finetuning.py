@@ -35,6 +35,9 @@ def tab_finetuning(backend_available: bool):
             st.session_state.session_id, "tab_visit", {"tab_name": "finetuning"}
         )
 
+    # Mark Fine-tuning as visited
+    st.session_state["finetuning_ever_visited"] = True
+
     # Prerequisite check
     if not st.session_state.get("clustering_results") or not st.session_state.clustering_results.get("success", False):
         st.error("Please complete Clustering first.")
@@ -48,12 +51,10 @@ def tab_finetuning(backend_available: bool):
 
     backend = get_finetuning_backend()
 
-    # ---- Cluster management integrated with drag & drop board ----
     show_cluster_management_interface(backend)
     show_drag_drop_board(backend)
     st.markdown("---")
 
-    # ---- Entry management----
     show_entry_management_interface(backend)
     st.markdown("---")
 
