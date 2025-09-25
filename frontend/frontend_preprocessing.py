@@ -257,7 +257,7 @@ def show_processing_results():
         st.session_state.tab_preprocessing_complete = False
         
     # Show processing details
-    with st.expander("Preprocessing Details"):
+    with st.expander("Preprocessing Details", expanded=False):
         settings = st.session_state.get('preprocessing_settings', {})
         st.write(f"**Method**: {settings.get('method', 'N/A')}")
         st.write(f"**Description**: {settings.get('details', 'N/A')}")
@@ -269,4 +269,40 @@ def show_processing_results():
         metadata = st.session_state.get('preprocessing_metadata', {})
         if metadata:
             st.write(f"**Processing Time**: {metadata.get('processing_time', 'N/A'):.2f} seconds")
-            st.write(f"**Texts Removed**: {metadata.get('texts_removed', 0)}")
+            st.write(f"**Texts Entries Filtered Out**: {metadata.get('texts_removed', 0)}")
+        
+        # Collapsed dropdown of filtered-out rows
+        try:
+            original_texts = st.session_state.original_texts or []
+            row_alignment = st.session_state.row_alignment or []
+        except Exception:
+            original_texts, row_alignment = [], []
+
+        # Indices kept by preprocessing -> complement are filtered-out
+        filtered_idx = sorted(set(range(len(original_texts))) - set(row_alignment))
+        with st.expander("Filtered-out entries", expanded=False):
+            if filtered_idx:
+                df_src = st.session_state.get("df")
+                id_col = st.session_state.get("subjectID", "entryID")
+
+                rows = []
+                for i in filtered_idx:
+                    # Subject ID (safe fallback)
+                    if isinstance(df_src, pd.DataFrame) and i < len(df_src) and id_col in df_src.columns:
+                        sid = df_src.iloc[i][id_col]
+                    else:
+                        sid = i + 1  # 1-based row number fallback
+
+                    # Original text -> display "None" if empty/NaN/whitespace
+                    val = original_texts[i] if i < len(original_texts) else None
+                    if pd.isna(val) or (isinstance(val, str) and val.strip() == ""):
+                        display_text = "None"
+                    else:
+                        display_text = str(val)
+
+                    rows.append({"Subject ID": sid, "Original Text": display_text})
+
+                filt_df = pd.DataFrame(rows)
+                st.dataframe(filt_df, use_container_width=True, hide_index=True, height=300)
+            else:
+                st.caption("No rows were filtered out.")

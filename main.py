@@ -293,7 +293,7 @@ def create_sidebar_navigation():
                 'preprocessing': False, 
                 'clustering': False
             }
-            
+
             # reset the analysis
             from utils.session_state import reset_analysis
             reset_analysis()
@@ -385,25 +385,25 @@ def render_main_content():
             tab_functions['data_loading'](st.session_state.get('BACKEND_AVAILABLE', False))
             
         elif current_page == "preprocessing":
-            st.markdown("# 🧹 Text Preprocessing")
+            st.markdown("# 🧹 Preprocessing")
             st.markdown("Clean and prepare your text data for optimal clustering results.")
             st.markdown("---")
             tab_functions['preprocessing'](st.session_state.get('BACKEND_AVAILABLE', False))
             
         elif current_page == "clustering":
-            st.markdown("# 🔍 Clustering Configuration")
+            st.markdown("# 🔍 Clustering")
             st.markdown("Configure parameters and run the clustering algorithm.")
             st.markdown("---")
             tab_functions['clustering'](st.session_state.get('BACKEND_AVAILABLE', False))
             
         elif current_page == "finetuning":
-            st.markdown("# 🧩 Fine-tuning")
+            st.markdown("# 🧩 Fine-tuning (Optional)")
             st.markdown("Manually adjust your clustering results using drag-and-drop and AI assistance.")
             st.markdown("---")
             tab_functions['finetuning'](st.session_state.get('BACKEND_AVAILABLE', False))
             
         elif current_page == "results":
-            st.markdown("# 📊 Clustering Results")
+            st.markdown("# 📊 Results")
             st.markdown("Explore your clustering results and export findings.")
             st.markdown("---")
             tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
