@@ -1,6 +1,6 @@
-# utils/__init__.py
+# utils/__init__.py - Updated with unified reset system
 """
-Utility modules for the Clustery application
+Utility modules for the Clustery application with unified reset system
 """
 
 # Import key functions that might be used across the application
@@ -11,6 +11,15 @@ from .session_state import (
     cascade_from_preprocessing,
     detect_changes_and_cascade,
     check_automatic_completion
+)
+
+from .reset_manager import (
+    ResetManager,
+    reset_full_analysis,
+    reset_from_file_change,
+    reset_from_column_change,
+    reset_from_preprocessing_change,
+    reset_from_clustering_change
 )
 
 from .helpers import (
@@ -33,6 +42,14 @@ __all__ = [
     'cascade_from_preprocessing',
     'detect_changes_and_cascade',
     'check_automatic_completion',
+    
+    # Unified reset system
+    'ResetManager',
+    'reset_full_analysis',
+    'reset_from_file_change',
+    'reset_from_column_change',
+    'reset_from_preprocessing_change',
+    'reset_from_clustering_change',
     
     # Helper functions
     'get_file_from_upload',

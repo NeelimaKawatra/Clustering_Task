@@ -1,45 +1,12 @@
-# frontend/frontend_data_loading.py - Complete version with enhanced change detection
+# frontend/frontend_data_loading.py - Complete version with unified reset system
 import streamlit as st
 import os
 import re
 from utils import session_state
 from utils.helpers import get_file_from_upload
-from utils.session_state import reset_analysis
+from utils.reset_manager import reset_from_file_change, reset_from_column_change
 import pandas as pd
 from pandas.api.types import is_object_dtype, is_string_dtype
-from main import reset_downstream_from_data_loading
-
-def reset_downstream_from_data_loading():
-    """Reset everything downstream from data loading"""
-    # Clear results & processed artifacts
-    for k in ["clustering_results", "processed_texts", "finetuning_initialized"]:
-        if k in st.session_state:
-            del st.session_state[k]
-
-    # Mark steps incomplete (cover both old & new flags)
-    for k in [
-        "tab_preprocessing_complete", "tab_b_complete",
-        "tab_clustering_complete", "tab_c_complete",
-        "tab_results_complete", "tab_d_complete",
-    ]:
-        st.session_state[k] = False
-
-    # Permanent progress guard
-    if 'permanent_progress' in st.session_state:
-        st.session_state.permanent_progress.update({
-            'preprocessing': False,
-            'clustering': False,
-            'results': False,
-        })
-
-    # Clear any finetuning-* cached bits
-    for key in list(st.session_state.keys()):
-        if key.startswith('finetuning_'):
-            del st.session_state[key]
-
-    # Flag for UX tip later
-    st.session_state['data_loading_changes_made'] = True
-
 
 def get_safe_index(options_list, value, default=0):
     """Safely get index of value in list, return default if not found"""
@@ -52,7 +19,7 @@ def get_safe_index(options_list, value, default=0):
         return default
 
 def handle_column_selection_change(new_selection, current_selection, selection_type):
-    """Handle column selection changes and trigger appropriate resets"""
+    """Handle column selection changes using unified reset system"""
     
     # Define what constitutes a meaningful change
     prompt_values = {
@@ -75,17 +42,11 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
     )
     
     if is_meaningful_change and has_downstream_work:
-        st.warning(f"⚠️ {selection_type.title()} column changed - resetting downstream work!")
-        
-        # Reset downstream work - call the local function (NO IMPORT)
-        reset_downstream_from_data_loading()
-        
-        # Reset data loading completion status
-        st.session_state.tab_data_loading_complete = False
-        if 'permanent_progress' in st.session_state:
-            st.session_state.permanent_progress['data_loading'] = False
-            st.session_state.permanent_progress['preprocessing'] = False
-            st.session_state.permanent_progress['clustering'] = False
+        # Use unified reset system
+        reset_summary = reset_from_column_change(
+            changed_column=selection_type,
+            show_message=True
+        )
         
         # Reset the OTHER column selection
         if selection_type == "ID":
@@ -99,7 +60,7 @@ def handle_column_selection_change(new_selection, current_selection, selection_t
         st.rerun()
 
 def tab_data_loading(backend_available):
-    """Tab: Data Loading with persistent selections and smart change detection"""
+    """Tab: Data Loading with unified reset system"""
     
     # Track tab visit
     if backend_available:
@@ -159,24 +120,18 @@ def tab_data_loading(backend_available):
     if uploaded_file is not None:
         current_file_key = f"{uploaded_file.name}_{uploaded_file.size}_{uploaded_file.type}"
     
-    # Detect file change and reset analysis if needed
+    # Detect file change and reset analysis if needed using unified reset system
     file_changed = False
-    if current_file_key != st.session_state.previous_file_key and current_file_key is not None:
+    if current_file_key != st.session_state.get('previous_file_key') and current_file_key is not None:
         # New file detected - warn user and reset everything
         if (st.session_state.get('tab_preprocessing_complete') or 
             st.session_state.get('clustering_results') or 
             st.session_state.get('finetuning_initialized')):
             st.warning("🔄 New file uploaded! This will reset all your previous work.")
         
-        # Import and call the reset function
-        from main import reset_downstream_from_data_loading
-        reset_downstream_from_data_loading()
+        # Use unified reset system for file change
+        reset_summary = reset_from_file_change(show_message=True)
         
-        # Also clear the current data loading completion since we have new data
-        st.session_state.tab_data_loading_complete = False
-        st.session_state.permanent_progress['data_loading'] = False
-        
-        reset_analysis()
         file_changed = True
         # clear previous alerts when a new file is uploaded
         st.session_state["data_loading_alerts"] = []
@@ -418,7 +373,6 @@ def tab_data_loading(backend_available):
     text_columns = []
     if backend_available:
         try:
-            # FIXED: Keep original backend method name for now
             text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
             # minimal sanity filter: must exist in df and not be entryID
             text_columns = [c for c in text_columns if c in df.columns and c != 'entryID']
@@ -430,7 +384,7 @@ def tab_data_loading(backend_available):
     # Create filtered options - only show text columns plus prompt
     text_options = [prompt_option_text] + text_columns
     
-    # FIXED: Preserve existing entry column selection
+    # Preserve existing entry column selection
     current_text_selection = st.session_state.get('entry_column', prompt_option_text)
     
     # Only reset if no previous selection or selection is invalid
@@ -452,7 +406,7 @@ def tab_data_loading(backend_available):
         key="text_selector"
     )
     
-    # Enhanced change detection for entry column
+    # Enhanced change detection for entry column using unified reset system
     if selected_text_column != st.session_state.get('entry_column'):
         handle_column_selection_change(selected_text_column, st.session_state.get('entry_column'), "entry")
         st.session_state.entry_column = selected_text_column
@@ -500,7 +454,7 @@ def tab_data_loading(backend_available):
                 st.session_state.session_id
             )
         
-        # FIXED: Use original backend validation keys
+        # Use original backend validation keys
         if validation_result["text_column_valid"]:
             st.success(f"{validation_result['text_column_message']}")
             stats = validation_result["text_quality"]
@@ -642,7 +596,7 @@ def tab_data_loading(backend_available):
                 """)
         
         else:
-            # FIXED: Use original backend error key
+            # Use original backend error key
             st.error(f"{validation_result['text_column_message']}")
             # Provide helpful suggestions
             st.markdown("**Suggestions to fix this issue:**")

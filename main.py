@@ -1,11 +1,8 @@
-# main.py - Fixed Clustery Application
+# main.py - Complete updated Clustery Application with unified reset system
 import streamlit as st
 import time
 import warnings
 warnings.filterwarnings("ignore")
-
-
-
 
 # ============================================================================
 # CONFIGURATION
@@ -117,7 +114,7 @@ def initialize_app_with_progress():
     return True
 
 def create_sidebar_navigation():
-    """Create clean sidebar with simple permanent progress tracking"""
+    """Create clean sidebar with unified reset system"""
     
     # Disable sidebar scrolling
     st.markdown("""
@@ -159,7 +156,6 @@ def create_sidebar_navigation():
                                          st.session_state.clustering_results.get("success", False))
         
         # Only update to True, never to False (except on explicit reset)
-        # Update permanent progress - always sync with current completion
         st.session_state.permanent_progress['data_loading'] = current_data_complete
         if current_preprocessing_complete:
             st.session_state.permanent_progress['preprocessing'] = True
@@ -286,52 +282,31 @@ def create_sidebar_navigation():
             st.write(f"Preprocessing Ever: {preprocessing_ever_completed}")
             st.write(f"Clustering Ever: {clustering_ever_completed}")
         
-        # Reset button - THIS resets permanent progress too
-        from utils.session_state import reset_analysis
+        # Reset button using unified reset system
         if st.button("🔄 Start New Analysis", 
                     help="Clear all data and start over",
                     use_container_width=True,
                     key="reset_analysis_btn"):
-            # Reset permanent progress when doing full reset
-            st.session_state.permanent_progress = {
-                'data_loading': False,
-                'preprocessing': False, 
-                'clustering': False
-            }
-
-            # reset the analysis
-            from utils.session_state import reset_analysis
-            reset_analysis()
-
-            # show one-shot blue reset confirmation and clear any old alerts
+            
+            # Use unified reset system for complete reset
+            from utils.reset_manager import reset_full_analysis
+            reset_summary = reset_full_analysis(
+                preserve_columns=False, 
+                show_message=True
+            )
+            
+            # Additional UI state for file uploader
             st.session_state.file_uploader_reset = True
             st.session_state.file_reset_reason = "start_new_analysis"
             st.session_state["data_loading_alerts"] = []
+            
             st.rerun()
 
 
 def reset_downstream_from_data_loading():
-    """Reset everything downstream from data loading"""
-    import streamlit as st
-    
-    # Reset current completion status
-    st.session_state.tab_preprocessing_complete = False
-    if 'clustering_results' in st.session_state:
-        del st.session_state['clustering_results']
-    if 'processed_texts' in st.session_state:
-        del st.session_state['processed_texts']
-    
-    # Reset permanent progress for downstream steps
-    if 'permanent_progress' in st.session_state:
-        st.session_state.permanent_progress['preprocessing'] = False
-        st.session_state.permanent_progress['clustering'] = False
-    
-    # Clear finetuning
-    for key in list(st.session_state.keys()):
-        if key.startswith('finetuning_'):
-            del st.session_state[key]
-    
-    # Note: Don't call st.rerun() here - let the calling function handle it
+    """Use unified reset system for data loading changes"""
+    from utils.reset_manager import reset_from_column_change
+    return reset_from_column_change("data_loading", show_message=False)
 
 
 # ============================================================================
@@ -339,7 +314,7 @@ def reset_downstream_from_data_loading():
 # ============================================================================
 
 def render_main_content():
-    """Render the main content area based o n selected page"""
+    """Render the main content area based on selected page"""
     
     current_page = st.session_state.get('current_page', 'data_loading')
     
@@ -361,20 +336,19 @@ def render_main_content():
         tab_functions = st.session_state.tab_functions
     else:
         # Fallback import if not in session state
-        # Fallback import if not in session state
         try:
             from frontend.frontend_data_loading import tab_data_loading
             from frontend.frontend_preprocessing import tab_preprocessing
             from frontend.frontend_clustering import tab_clustering
             from frontend.frontend_results import tab_results
-            from frontend.frontend_finetuning import tab_finetuning  # ← add this
+            from frontend.frontend_finetuning import tab_finetuning
 
             tab_functions = {
                 'data_loading': tab_data_loading,
                 'preprocessing': tab_preprocessing,
                 'clustering': tab_clustering,
                 'results': tab_results,
-                'finetuning': tab_finetuning,  # ← and add this
+                'finetuning': tab_finetuning,
             }
         except ImportError as e:
             st.error(f"Failed to import tab functions: {e}")
@@ -433,7 +407,6 @@ def main():
     
     # Create sidebar navigation
     create_sidebar_navigation()
-    
     
     # Render main content
     render_main_content()

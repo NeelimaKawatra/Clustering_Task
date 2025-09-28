@@ -1,7 +1,6 @@
-# utils/session_state.py - Fixed version with proper persistent selections
+# utils/session_state.py - Updated with unified reset system
 import streamlit as st
 import time
-
 
 def initialize_session_state(backend_available=True):
     """Initialize all session state variables with proper defaults"""
@@ -10,20 +9,20 @@ def initialize_session_state(backend_available=True):
     if 'df' not in st.session_state:
         st.session_state.df = None
     
-    # User selections - FIXED: Don't reset if already exist
+    # User selections - Don't reset if already exist
     if 'user_selections' not in st.session_state:
         st.session_state.user_selections = {
             'id_column_choice': None,
-            'entry_column_choice': None,  # Changed from 'text_column_choice'
+            'entry_column_choice': None,
             'original_columns': []
         }
     
-    # Column selections - FIXED: Preserve existing selections
+    # Column selections - Preserve existing selections
     if 'subjectID' not in st.session_state:
         st.session_state.subjectID = "-- Select a subject ID column--"
     
-    if 'entry_column' not in st.session_state:  # Changed from 'text_column'
-        st.session_state.entry_column = "-- Select an entry column --"  # Updated text
+    if 'entry_column' not in st.session_state:
+        st.session_state.entry_column = "-- Select an entry column --"
     
     # Processing data
     if 'original_texts' not in st.session_state:
@@ -54,6 +53,12 @@ def initialize_session_state(backend_available=True):
     if 'finetuning_results' not in st.session_state:
         st.session_state.finetuning_results = None
     
+    if 'finetuning_initialized' not in st.session_state:
+        st.session_state.finetuning_initialized = False
+    
+    if 'finetuning_ever_visited' not in st.session_state:
+        st.session_state.finetuning_ever_visited = False
+    
     # Tab completion status
     if 'tab_data_loading_complete' not in st.session_state:
         st.session_state.tab_data_loading_complete = False
@@ -63,6 +68,10 @@ def initialize_session_state(backend_available=True):
     
     if 'tab_clustering_complete' not in st.session_state:
         st.session_state.tab_clustering_complete = False
+    
+    # Processing tracking
+    if 'preprocessing_tracked' not in st.session_state:
+        st.session_state.preprocessing_tracked = False
     
     # Navigation
     if 'current_page' not in st.session_state:
@@ -99,129 +108,41 @@ def initialize_session_state(backend_available=True):
     if 'file_uploader_reset' not in st.session_state:
         st.session_state.file_uploader_reset = False
 
-    # add a reason for the reset, only the button should set this
     if 'file_reset_reason' not in st.session_state:
         st.session_state.file_reset_reason = None
+    
+    if 'data_loading_alerts' not in st.session_state:
+        st.session_state.data_loading_alerts = []
+
+    # Permanent progress tracking
+    if 'permanent_progress' not in st.session_state:
+        st.session_state.permanent_progress = {
+            'data_loading': False,
+            'preprocessing': False,
+            'clustering': False
+        }
+
 
 def reset_analysis():
-    """Reset all analysis data while preserving navigation state - FIXED VERSION"""
-    
-    # Keys to completely reset (including column selections)
-    keys_to_reset = [
-        'df', 'original_texts', 'processed_texts',
-        'preprocessing_metadata', 'preprocessing_settings', 'row_alignment',
-        'clustering_results', 'tab_data_loading_complete', 'tab_preprocessing_complete',
-        'tab_clustering_complete', 'previous_file_key', 'state_fingerprints', 'finetuning_results'
-    ]
-    
-    # FIXED: Also reset column selections when doing full analysis reset
-    column_selection_keys = [
-        'subjectID', 
-        'entry_column',  # Changed from 'text_column'
-        'user_selections'
-    ]
-    
-    # Reset main keys
-    for key in keys_to_reset:
-        if key in st.session_state:
-            if key == 'preprocessing_settings':
-                st.session_state[key] = {
-                    'method': 'none',
-                    'details': 'No preprocessing applied',
-                    'custom_settings': {}
-                }
-            elif key in ['clean_ids', 'original_texts', 'row_alignment']:
-                st.session_state[key] = []
-            else:
-                st.session_state[key] = None
-    
-    # Reset column selections
-    for key in column_selection_keys:
-        if key == 'user_selections':
-            st.session_state[key] = {
-                'id_column_choice': None,
-                'entry_column_choice': None,  # Changed from 'text_column_choice'
-                'original_columns': []
-            }
-        elif key == 'entry_column':  # Changed from 'text_column'
-            st.session_state[key] = "-- Select an entry column --"  # Updated text
-        elif key == 'subjectID':
-            st.session_state[key] = "-- Select a subject ID column--"
-    
-    # Reset to first page
-    st.session_state.current_page = "data_loading"
-    
-    # Generate new file uploader key to force file uploader to clear
-    st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
-    # Do not raise the UI banner here; the button does it.
-    st.session_state.file_uploader_reset = False
-    # clears the UI banner
-    st.session_state["data_loading_alerts"] = []
-    st.session_state["uploaded_filename"] = None
-    st.session_state["file_reset_reason"] = None
+    """Reset all analysis data using unified reset system"""
+    from .reset_manager import reset_full_analysis
+    return reset_full_analysis(preserve_columns=False, show_message=True)
+
 
 def cascade_from_data_loading():
-    """Reset downstream steps when data changes - FIXED to preserve column selections"""
-    
-    downstream_keys = [
-        'processed_texts', 'original_texts', 'preprocessing_settings', 'preprocessing_metadata',
-        'row_alignment', 'tab_preprocessing_complete', 'clustering_results', 'tab_clustering_complete', 'finetuning_results'
-    ]
-    
-    reset_items = []
-    for key in downstream_keys:
-        if key in st.session_state and st.session_state[key] is not None:
-            if key == 'tab_preprocessing_complete' and st.session_state[key]:
-                reset_items.append("preprocessing")
-            elif key == 'clustering_results' and st.session_state[key]:
-                reset_items.append("clustering")
-            
-            # Reset the key
-            if key in ['original_texts', 'row_alignment']:
-                st.session_state[key] = []
-            elif key == 'preprocessing_settings':
-                st.session_state[key] = {
-                    'method': 'none',
-                    'details': 'No preprocessing applied',
-                    'custom_settings': {}
-                }
-            else:
-                st.session_state[key] = None
-    
-    # IMPORTANT: Do NOT reset column selections during cascade
-    # Column selections should only reset on full analysis reset or new file upload
-    
-    if reset_items:
-        reset_list = ", ".join(set(reset_items))
-        st.warning(f"Data configuration changed. Reset: {reset_list}")
-        
-        if hasattr(st.session_state, 'backend') and st.session_state.backend:
-            st.session_state.backend.track_activity(st.session_state.session_id, "cascade_reset", {
-                "trigger": "data_loading_change",
-                "steps_reset": reset_items
-            })
+    """Reset downstream steps when data changes using unified reset system"""
+    from .reset_manager import reset_from_column_change
+    return reset_from_column_change("data_loading", show_message=True)
+
 
 def cascade_from_preprocessing():
-    """Reset downstream steps when preprocessing changes"""
-    downstream_keys = ['clustering_results', 'tab_clustering_complete', 'finetuning_results']
-    
-    reset_occurred = False
-    for key in downstream_keys:
-        if key in st.session_state and st.session_state[key] is not None:
-            st.session_state[key] = None
-            reset_occurred = True
-    
-    if reset_occurred:
-        st.warning("Preprocessing changed. Reset clustering results.")
-        
-        if hasattr(st.session_state, 'backend') and st.session_state.backend:
-            st.session_state.backend.track_activity(st.session_state.session_id, "cascade_reset", {
-                "trigger": "preprocessing_change", 
-                "steps_reset": ["clustering"]
-            })
+    """Reset downstream steps when preprocessing changes using unified reset system"""
+    from .reset_manager import reset_from_preprocessing_change
+    return reset_from_preprocessing_change(show_message=True)
+
 
 def detect_changes_and_cascade():
-    """Detect significant changes and cascade resets - Enhanced with column change detection"""
+    """Detect significant changes and cascade resets using unified reset system"""
     
     # Initialize state_fingerprints if it doesn't exist
     if 'state_fingerprints' not in st.session_state or st.session_state.state_fingerprints is None:
@@ -230,7 +151,7 @@ def detect_changes_and_cascade():
     current_fingerprint = {
         'file_key': st.session_state.get('previous_file_key'),
         'df_shape': tuple(st.session_state.df.shape) if st.session_state.get('df') is not None else None,
-        'entry_column': st.session_state.get('entry_column'),  # Changed from 'text_column'
+        'entry_column': st.session_state.get('entry_column'),
         'id_column': st.session_state.get('subjectID')
     }
     
@@ -250,25 +171,37 @@ def detect_changes_and_cascade():
         significant_changes.append("data_structure")
     
     # Column selection changes - should reset downstream processing
-    if (current_fingerprint.get('entry_column') != previous_fingerprint.get('entry_column') and  # Changed from 'text_column'
-        previous_fingerprint.get('entry_column') is not None and  # Changed from 'text_column'
-        previous_fingerprint.get('entry_column') not in ["-- Select an entry column --", None] and  # Updated text
-        current_fingerprint.get('entry_column') not in ["-- Select an entry column --", None]):  # Updated text
-        significant_changes.append("entry_column")  # Changed from "text_column"
+    if (current_fingerprint.get('entry_column') != previous_fingerprint.get('entry_column') and
+        previous_fingerprint.get('entry_column') is not None and
+        previous_fingerprint.get('entry_column') not in ["-- Select an entry column --", None] and
+        current_fingerprint.get('entry_column') not in ["-- Select an entry column --", None]):
+        significant_changes.append("entry_column")
     
-    # treat changes between real selections as significant (ignore prompts/None)
     if (current_fingerprint.get('id_column') != previous_fingerprint.get('id_column') and
         previous_fingerprint.get('id_column') not in [None, "-- Select a subject ID column--"] and
         current_fingerprint.get('id_column') not in [None, "-- Select a subject ID column--"]):
         significant_changes.append("id_column")
     
-    # Cascade if there are significant changes AND downstream processing exists
+    # Use unified reset system for changes
     if (significant_changes and 
-        (st.session_state.get('tab_preprocessing_complete') or st.session_state.get('clustering_results') or st.session_state.get('finetuning_results'))):
-        cascade_from_data_loading()
+        (st.session_state.get('tab_preprocessing_complete') or 
+         st.session_state.get('clustering_results') or 
+         st.session_state.get('finetuning_results'))):
+        
+        from .reset_manager import reset_from_file_change, reset_from_column_change
+        
+        if "file" in significant_changes:
+            reset_from_file_change(show_message=True)
+        elif "entry_column" in significant_changes:
+            reset_from_column_change("entry", show_message=True)
+        elif "id_column" in significant_changes:
+            reset_from_column_change("id", show_message=True)
+        else:
+            cascade_from_data_loading()
     
     # Store current fingerprint
     st.session_state.state_fingerprints['last_known'] = current_fingerprint
+
 
 def check_automatic_completion():
     """Check and auto-complete steps when conditions are met"""
@@ -276,20 +209,21 @@ def check_automatic_completion():
     # Auto-complete Data Loading
     if (not st.session_state.get('tab_data_loading_complete', False) and
         st.session_state.get('df') is not None and
-        st.session_state.get('entry_column') is not None and  # Changed from 'text_column'
-        st.session_state.get('entry_column') not in [None, "-- Select an entry column --"]):  # Updated text
+        st.session_state.get('entry_column') is not None and
+        st.session_state.get('entry_column') not in [None, "-- Select an entry column --"]):
         
         if hasattr(st.session_state, 'backend') and st.session_state.backend:
             try:
                 validation = st.session_state.backend.validate_columns(
                     st.session_state.df, 
-                    st.session_state.entry_column,  # Changed from 'text_column'
+                    st.session_state.entry_column,
                     st.session_state.subjectID,
                     st.session_state.session_id
                 )
                 
                 if validation.get('text_column_valid', False):
                     st.session_state.tab_data_loading_complete = True
+                    st.session_state.permanent_progress['data_loading'] = True
             except Exception:
                 pass  # Skip auto-completion if validation fails
     
@@ -297,9 +231,10 @@ def check_automatic_completion():
     if (not st.session_state.get('tab_preprocessing_complete', False) and
         st.session_state.get('tab_data_loading_complete', False) and
         st.session_state.get('processed_texts') is not None and
-        len(st.session_state.get('processed_texts', [])) > 0):  # Changed from >= 10 to > 0
+        len(st.session_state.get('processed_texts', [])) > 0):
         
         st.session_state.tab_preprocessing_complete = True
+        st.session_state.permanent_progress['preprocessing'] = True
     
     # Auto-complete Clustering
     if (not st.session_state.get('tab_clustering_complete', False) and
@@ -307,67 +242,54 @@ def check_automatic_completion():
         st.session_state.clustering_results.get('success', False)):
         
         st.session_state.tab_clustering_complete = True
+        st.session_state.permanent_progress['clustering'] = True
 
+
+# Legacy functions for backward compatibility
 def clear_file_uploader():
     """Clear file uploader state by generating a new key"""
     st.session_state.file_uploader_key = f"uploader_{int(time.time())}"
-    # Do not set the UI banner flag here; only the button should.
-    #st.session_state.file_uploader_reset = True
 
 def reset_file_state():
-    """Reset only file-related state variables"""
-    file_keys = ['df', 'clean_ids', 'previous_file_key', 'file_uploader_key']
-    
-    for key in file_keys:
-        if key in st.session_state:
-            if key == 'clean_ids':
-                st.session_state[key] = []
-            elif key == 'file_uploader_key':
-                st.session_state[key] = f"uploader_{int(time.time())}"
-            else:
-                st.session_state[key] = None
-    
-    # Reset tab completion since file data is cleared
-    if 'tab_data_loading_complete' in st.session_state:
-        st.session_state.tab_data_loading_complete = False
-    
-    # Set flag to show reset message
-    #st.session_state.file_uploader_reset = True
-    # Do not set the UI banner flag here; only the button should.
+    """Reset only file-related state variables using unified reset system"""
+    from .reset_manager import ResetManager
+    manager = ResetManager()
+    return manager.unified_reset(
+        reset_type="file_change",
+        preserve_columns=True,
+        preserve_navigation=True,
+        trigger_reason="file_reset",
+        show_message=False
+    )
 
 def preserve_column_selections():
-    """Helper to preserve column selections during navigation - used internally"""
-    # This is called during navigation to ensure selections are maintained
+    """Helper to preserve column selections during navigation"""
     preserved_selections = {
         'subjectID': st.session_state.get('subjectID'),
-        'entry_column': st.session_state.get('entry_column'),  # Changed from 'text_column'
+        'entry_column': st.session_state.get('entry_column'),
         'user_selections': st.session_state.get('user_selections', {}).copy()
     }
     return preserved_selections
 
 def restore_column_selections(selections):
-    """Helper to restore column selections - used internally"""
+    """Helper to restore column selections"""
     for key, value in selections.items():
         if value is not None:
             st.session_state[key] = value
 
-# Updated auto_navigate_to_next_available function for session_state.py
 def auto_navigate_to_next_available():
     """Automatically navigate to the next available step"""
-    # Set the flag that the sidebar navigation will check
     st.session_state.should_navigate_next = True
     
-    # Optional: Add a small delay to ensure the flag is processed
     import time
     time.sleep(0.1)
     
-    # Log what step we're trying to navigate to (for debugging)
+    # Determine next step for logging
     data_complete = bool(st.session_state.get('tab_data_loading_complete', False))
     preprocessing_complete = bool(st.session_state.get('tab_preprocessing_complete', False))
     clustering_complete = bool(st.session_state.get('clustering_results') and 
                              st.session_state.clustering_results.get("success", False))
     
-    # Determine next step for logging
     if not data_complete:
         next_step = "data_loading"
     elif not preprocessing_complete:
@@ -377,5 +299,4 @@ def auto_navigate_to_next_available():
     else:
         next_step = "finetuning_or_results"
     
-    # Store for debugging
     st.session_state.auto_nav_target = next_step

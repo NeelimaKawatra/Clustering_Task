@@ -36,7 +36,7 @@ def tab_results(backend_available):
     results = st.session_state.get("finetuning_results") or st.session_state.clustering_results
 
     stats = results["statistics"]
-    confidence = results["confidence_analysis"]
+    # confidence = results["confidence_analysis"]  # COMMENTED OUT: No longer showing confidence scores
     performance = results["performance"]
     
     # Results overview
@@ -66,24 +66,47 @@ def tab_results(backend_available):
         with col3:
             st.metric("Clustering Time", f"{performance['clustering_time']:.2f}s")
     
-    # Confidence analysis
-    st.subheader("🎯 Confidence Analysis")
+    # COMMENTED OUT: Confidence analysis section
+    # st.subheader("🎯 Confidence Analysis")
+    # 
+    # col1, col2, col3 = st.columns(3)
+    # with col1:
+    #     high_pct = (confidence['high_confidence'] / stats['total_texts']) * 100
+    #     st.metric("🟢 High Confidence", f"{confidence['high_confidence']}", f"{high_pct:.1f}%")
+    #     st.caption("Probability ≥ 0.7")
+    # 
+    # with col2:
+    #     med_pct = (confidence['medium_confidence'] / stats['total_texts']) * 100
+    #     st.metric("🟡 Medium Confidence", f"{confidence['medium_confidence']}", f"{med_pct:.1f}%")
+    #     st.caption("Probability 0.3-0.7")
+    # 
+    # with col3:
+    #     low_pct = (confidence['low_confidence'] / stats['total_texts']) * 100
+    #     st.metric("🔴 Low Confidence", f"{confidence['low_confidence']}", f"{low_pct:.1f}%")
+    #     st.caption("Probability < 0.3")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        high_pct = (confidence['high_confidence'] / stats['total_texts']) * 100
-        st.metric("🟢 High Confidence", f"{confidence['high_confidence']}", f"{high_pct:.1f}%")
-        st.caption("Probability ≥ 0.7")
-    
-    with col2:
-        med_pct = (confidence['medium_confidence'] / stats['total_texts']) * 100
-        st.metric("🟡 Medium Confidence", f"{confidence['medium_confidence']}", f"{med_pct:.1f}%")
-        st.caption("Probability 0.3-0.7")
-    
-    with col3:
-        low_pct = (confidence['low_confidence'] / stats['total_texts']) * 100
-        st.metric("🔴 Low Confidence", f"{confidence['low_confidence']}", f"{low_pct:.1f}%")
-        st.caption("Probability < 0.3")
+    # Show modification summary for fine-tuned results
+    if st.session_state.get('finetuning_results'):
+        from backend.finetuning_backend import get_finetuning_backend
+        backend = get_finetuning_backend()
+        
+        if backend.initialized:
+            modification_summary = backend.getModificationSummary()
+            
+            st.subheader("🧩 Fine-tuning Summary")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                manual_clusters = modification_summary.get("manual_clusters_created", 0)
+                st.metric("🆕 Manual Clusters Created", manual_clusters)
+            
+            with col2:
+                merged_clusters = modification_summary.get("clusters_merged", 0)
+                st.metric("🔄 Clusters Merged", merged_clusters)
+            
+            with col3:
+                modification_pct = modification_summary.get("modification_percentage", 0)
+                st.metric("📝 Entries Modified", f"{modification_pct:.1f}%")
     
     #######################################################
     st.subheader("📝 Cluster Details")
@@ -101,15 +124,36 @@ def tab_results(backend_available):
 
             with col1:
                 st.write("**📄 Sample Text Entries:**")
-                for text, prob in d.get("top_texts", [])[:5]:
-                    badge = "🟢" if prob >= 0.7 else ("🟡" if prob >= 0.3 else "🔴")
-                    short = text[:150] + ("..." if len(text) > 150 else "")
-                    st.write(f"{badge} {short} *(conf: {prob:.2f})*")
+                # COMMENTED OUT: Confidence score badges
+                # for text, prob in d.get("top_texts", [])[:5]:
+                #     badge = "🟢" if prob >= 0.7 else ("🟡" if prob >= 0.3 else "🔴")
+                #     short = text[:150] + ("..." if len(text) > 150 else "")
+                #     st.write(f"{badge} {short} *(conf: {prob:.2f})*")
+                
+                # NEW: Show texts without confidence scores
+                sample_texts = d.get("top_texts", [])
+                if sample_texts:
+                    for i, (text, _) in enumerate(sample_texts[:5], 1):  # Ignore confidence score
+                        short = text[:150] + ("..." if len(text) > 150 else "")
+                        st.write(f"**{i}.** {short}")
+                else:
+                    # Fallback to all_texts if top_texts not available
+                    all_texts = d.get("all_texts", [])
+                    for i, text in enumerate(all_texts[:5], 1):
+                        short = text[:150] + ("..." if len(text) > 150 else "")
+                        st.write(f"**{i}.** {short}")
 
             with col2:
-                st.metric("Avg Confidence", f"{d.get('avg_confidence', 0.0):.2f}")
-                st.metric("High Confidence", d.get("high_confidence_count", 0))
+                # COMMENTED OUT: Confidence metrics
+                # st.metric("Avg Confidence", f"{d.get('avg_confidence', 0.0):.2f}")
+                # st.metric("High Confidence", d.get("high_confidence_count", 0))
                 st.metric("Cluster Size", size)
+                
+                # Show keywords if available
+                if keywords:
+                    st.write("**Keywords:**")
+                    for keyword in keywords[:3]:
+                        st.write(f"• {keyword}")
 
     regular_ids = sorted([cid for cid in cluster_details.keys() if cid != -1])
     for cid in regular_ids:
@@ -165,8 +209,13 @@ def tab_results(backend_available):
             st.write("• processed_text: Text after preprocessing steps")
             st.write("• cluster_id: Assigned cluster number (-1 = outlier)")
             st.write("• cluster_label: Descriptive cluster name based on keywords")
-            st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
-            st.write("• confidence_level: High, Medium, or Low based on confidence score")
+            
+            # COMMENTED OUT: Confidence score descriptions
+            # st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
+            # st.write("• confidence_level: High, Medium, or Low based on confidence score")
+            
+            # Note about confidence scores being temporarily hidden
+            st.info("ℹ️ **Note:** Confidence scores are temporarily hidden as they reflect original clustering and don't account for fine-tuning modifications.")
 
     col1, col2, col3 = st.columns(3)
 

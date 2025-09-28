@@ -1,10 +1,11 @@
-# frontend/frontend_clustering.py - Complete clustering interface
+# frontend/frontend_clustering.py - Complete clustering interface with unified reset system
 import streamlit as st
 import pandas as pd
 import time
+from utils.reset_manager import reset_from_clustering_change
 
 def tab_clustering(backend_available):
-    """Tab: Clustering Configuration and Execution"""
+    """Tab: Clustering Configuration and Execution with unified reset system"""
     
     # Track tab visit
     if backend_available:
@@ -119,13 +120,11 @@ def tab_clustering(backend_available):
     st.markdown("---")
     
     if st.button("🔍 Run Clustering Analysis", type="primary", use_container_width=True):
-        # Check if re-clustering will affect fine-tuning work
+        # Check if re-clustering will affect fine-tuning work using unified reset system
         if st.session_state.get('finetuning_initialized'):
             st.warning("🔄 Running new clustering will reset your fine-tuning work!")
-            # Reset finetuning state only (clustering doesn't affect its own permanent progress)
-            for key in list(st.session_state.keys()):
-                if key.startswith('finetuning_'):
-                    del st.session_state[key]
+            # Use unified reset system for clustering change
+            reset_from_clustering_change(show_message=False)
         
         run_clustering_analysis(processed_texts, clustering_params, backend_available)
     
@@ -180,7 +179,7 @@ def run_clustering_analysis(processed_texts, clustering_params, backend_availabl
                 stats = clustering_results.get("statistics", {})
                 st.info(f"Found {stats.get('n_clusters', 'unknown')} clusters from {stats.get('total_texts', len(processed_texts))} texts")
                 
-                # ✅ CRITICAL: Refresh sidebar immediately to show green button
+                # Refresh sidebar immediately to show green button
                 st.rerun()
                 
             else:
@@ -411,15 +410,7 @@ def export_clustering_results():
     return pd.DataFrame(export_data)
 
 def reset_clustering_results():
-    """Reset clustering results and clear downstream data"""
+    """Reset clustering results and clear downstream data using unified reset system"""
     
-    if 'clustering_results' in st.session_state:
-        del st.session_state['clustering_results']
-    
-    # Clear any downstream processing
-    for key in list(st.session_state.keys()):
-        if key.startswith('finetuning_'):
-            del st.session_state[key]
-    
-    st.success("Clustering results cleared. You can run clustering again with different parameters.")
+    reset_summary = reset_from_clustering_change(show_message=True)
     st.rerun()

@@ -1,24 +1,10 @@
-# frontend/frontend_preprocessing.py - Clean version without debug code
+# frontend/frontend_preprocessing.py - Proper fix with correct reset timing
 import streamlit as st
 import pandas as pd
-
-def reset_downstream_from_preprocessing():
-    """Reset everything downstream from preprocessing"""
-    # Reset current completion status
-    if 'clustering_results' in st.session_state:
-        del st.session_state['clustering_results']
-    
-    # Reset permanent progress for downstream steps
-    if 'permanent_progress' in st.session_state:
-        st.session_state.permanent_progress['clustering'] = False
-    
-    # Clear finetuning
-    for key in list(st.session_state.keys()):
-        if key.startswith('finetuning_'):
-            del st.session_state[key]
+from utils.reset_manager import reset_from_preprocessing_change
 
 def tab_preprocessing(backend_available):
-    """Tab: Simplified Text Preprocessing with clear data alignment"""
+    """Tab: Simplified Text Preprocessing with proper reset timing"""
     
     # Track tab visit
     if backend_available:
@@ -93,28 +79,28 @@ def tab_preprocessing(backend_available):
             custom_settings['min_length'] = st.slider("Minimum word length", 1, 5, 2)
             custom_settings['remove_numbers'] = st.checkbox("Remove numbers", value=True)
 
-    # Detect preprocessing method changes
+    # Create method signature for change detection
     current_method = f"{preprocessing_option}_{str(custom_settings) if preprocessing_option == 'Custom Preprocessing' else ''}"
     previous_method = st.session_state.get('last_preprocessing_method', '')
+    
+    # Check what will be affected by reprocessing
+    method_changed = (current_method != previous_method and previous_method != '')
+    has_clustering = bool(st.session_state.get('clustering_results'))
+    has_finetuning = bool(st.session_state.get('finetuning_results'))
+    
+    # Show impact warning BEFORE the button
+    if method_changed and (has_clustering or has_finetuning):
+        affected_steps = []
+        if has_clustering:
+            affected_steps.append("clustering results")
+        if has_finetuning:
+            affected_steps.append("fine-tuning work")
+        
+        st.warning(f"⚠️ **Changing preprocessing method will reset:** {', '.join(affected_steps)}")
+        st.info("💡 The reset will happen AFTER the new preprocessing completes successfully.")
 
     # Process button
     if st.button("Preprocess Text", type="primary"):
-        # Check if method changed and there's downstream work
-        method_changed = (current_method != previous_method and 
-                         previous_method != '' and
-                         st.session_state.get('clustering_results'))
-        
-        if method_changed:
-            st.warning("🔄 Preprocessing method changed - resetting clustering results!")
-            reset_downstream_from_preprocessing()
-        
-        # Store current method for future comparison
-        st.session_state.last_preprocessing_method = current_method
-        
-        # Check if reprocessing will affect downstream work
-        if st.session_state.get('clustering_results'):
-            st.warning("🔄 Reprocessing text will reset your clustering results!")
-            reset_downstream_from_preprocessing()
         
         with st.spinner("Processing text..."):
             
@@ -129,12 +115,12 @@ def tab_preprocessing(backend_available):
             method = method_mapping[preprocessing_option]
             
             try:
-                # Process texts using backend
+                # STEP 1: Process texts using backend
                 processed_texts, metadata = st.session_state.backend.preprocess_texts(
                     original_texts, method, custom_settings, st.session_state.session_id
                 )
                 
-                # Store results with simplified alignment approach
+                # STEP 2: Store ALL new results first (before any resets)
                 st.session_state.processed_texts = processed_texts
                 st.session_state.preprocessing_metadata = metadata
                 st.session_state.preprocessing_settings = {
@@ -142,11 +128,54 @@ def tab_preprocessing(backend_available):
                     'details': f"{preprocessing_option} applied",
                     'custom_settings': custom_settings if method == "custom" else {}
                 }
-                
-                # Store simplified row alignment - just the valid indices
                 st.session_state.row_alignment = metadata.get('valid_row_indices', list(range(len(processed_texts))))
+                st.session_state.last_preprocessing_method = current_method
                 
-                st.success(f"Processing complete! {len(processed_texts)} preprocessed text entries ready for clustering.")
+                # STEP 3: Mark preprocessing as complete
+                st.session_state.tab_preprocessing_complete = True
+                if 'permanent_progress' in st.session_state:
+                    st.session_state.permanent_progress['preprocessing'] = True
+                
+                # STEP 4: NOW reset downstream if method changed or there were existing results
+                if method_changed or has_clustering or has_finetuning:
+                    # Clear downstream results manually (more reliable than unified reset during processing)
+                    downstream_cleared = []
+                    
+                    if 'clustering_results' in st.session_state:
+                        del st.session_state['clustering_results']
+                        downstream_cleared.append("clustering results")
+                    
+                    # Clear all finetuning keys
+                    for key in list(st.session_state.keys()):
+                        if key.startswith('finetuning_'):
+                            del st.session_state[key]
+                            if "fine-tuning" not in downstream_cleared:
+                                downstream_cleared.append("fine-tuning data")
+                    
+                    # Update permanent progress
+                    if 'permanent_progress' in st.session_state:
+                        st.session_state.permanent_progress['clustering'] = False
+                    
+                    if downstream_cleared:
+                        st.info(f"✅ Cleared: {', '.join(downstream_cleared)}")
+                
+                # STEP 5: Track completion
+                if not st.session_state.get('preprocessing_tracked', False):
+                    if hasattr(st.session_state, 'backend') and st.session_state.backend:
+                        st.session_state.backend.track_activity(
+                            st.session_state.session_id, "preprocessing", {
+                                "method": method,
+                                "original_count": len(original_texts),
+                                "final_count": len(processed_texts),
+                                "downstream_reset": method_changed or has_clustering or has_finetuning
+                            }
+                        )
+                    st.session_state.preprocessing_tracked = True
+                
+                # STEP 6: Show success message
+                st.success(f"✅ Processing complete! {len(processed_texts)} preprocessed text entries ready for clustering.")
+                
+                # STEP 7: Single rerun to update UI
                 st.rerun()
                 
             except Exception as e:
@@ -217,39 +246,9 @@ def show_processing_results():
         else:
             st.warning("No valid comparisons to show")
 
-    # Quality check and completion
+    # Quality check and completion status
     if len(processed_texts) >= 0:
         st.success("Preprocessing Complete!")
-        
-        # Check previous states to determine if we need to rerun
-        was_tab_complete_before = st.session_state.get('tab_preprocessing_complete', False)
-        was_permanent_complete_before = st.session_state.get('permanent_progress', {}).get('preprocessing', False)
-        
-        # Set completion flags
-        st.session_state.tab_preprocessing_complete = True
-        
-        # Update permanent progress
-        if 'permanent_progress' in st.session_state:
-            st.session_state.permanent_progress['preprocessing'] = True
-        
-        # Track completion only once
-        if not st.session_state.get('preprocessing_tracked', False):
-            if hasattr(st.session_state, 'backend') and st.session_state.backend:
-                st.session_state.backend.track_activity(
-                    st.session_state.session_id, "preprocessing", {
-                        "method": st.session_state.get('preprocessing_settings', {}).get('method', 'unknown'),
-                        "original_count": len(original_texts),
-                        "final_count": len(processed_texts)
-                    }
-                )
-            st.session_state.preprocessing_tracked = True
-        
-        # Trigger rerun if EITHER flag changed from False to True (to update sidebar)
-        should_rerun = (not was_tab_complete_before) or (not was_permanent_complete_before)
-        
-        if should_rerun:
-            st.rerun()
-        
         st.info("Proceed to the **Clustering** tab to analyze your preprocessed text entries.")
         
     else:
@@ -270,7 +269,12 @@ def show_processing_results():
         metadata = st.session_state.get('preprocessing_metadata', {})
         if metadata:
             st.write(f"**Processing Time**: {metadata.get('processing_time', 'N/A'):.2f} seconds")
-            st.write(f"**Texts Entries Filtered Out**: {metadata.get('texts_removed', 0)}")
+            st.write(f"**Text Entries Filtered Out**: {metadata.get('texts_removed', 0)}")
+        
+        # Show what was reset (if anything)
+        current_method = st.session_state.get('last_preprocessing_method', '')
+        if current_method:
+            st.write(f"**Current Method Signature**: {current_method}")
         
         # Collapsed dropdown of filtered-out rows
         try:
