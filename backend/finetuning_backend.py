@@ -1,10 +1,15 @@
-# backend/finetuning_backend.py
 from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 
 class FineTuningBackend:
-    """Human-in-the-loop editing of cluster assignments and labels."""
+    """
+    Human-in-the-loop editing of the Entry-Cluster Dataset.
+
+    The Entry-Cluster Dataset contains all text entries with their entryIDs,
+    subjectIDs, and current cluster assignments (clusterIDs). This class
+    provides high-level methods to manipulate the dataset.
+    """
     def __init__(self):
         self.entries: Dict[str, Dict[str, Any]] = {}
         self.clusters: Dict[str, Dict[str, Any]] = {}
@@ -14,7 +19,7 @@ class FineTuningBackend:
 
     def initialize_from_clustering_results(self, clustering_results: Dict[str, Any],
                                            original_data: pd.DataFrame,
-                                           text_column: str,
+                                           entry_column: str,
                                            subject_id_column: str | None = None) -> bool:
         try:
             self.entries.clear()
@@ -40,7 +45,7 @@ class FineTuningBackend:
                     "entryID": entry_id,
                     "subjectID": subject_id,
                     "entry_text": text,
-                    "original_text": original_data[text_column].iloc[oidx] if oidx < len(original_data) else text,
+                    "original_text": original_data[entry_column].iloc[oidx] if oidx < len(original_data) else text,
                     "probability": prob,
                     "original_row_index": oidx
                 }
@@ -72,7 +77,10 @@ class FineTuningBackend:
             st.error(f"Failed to initialize fine-tuning backend: {e}")
             return False
 
-    # Reads
+    # =========================================================================
+    # INFORMATION FUNCTIONS
+    # =========================================================================
+
     def getEntry(self, entryID: str) -> Optional[Dict[str, Any]]:
         """Lookup by entryID (canonical)."""
         if not self.initialized or entryID not in self.entries:
@@ -82,25 +90,36 @@ class FineTuningBackend:
         return out
 
     def getAllEntriesInCluster(self, clusterID: str) -> List[str]:
-        if not self.initialized or clusterID not in self.clusters: return []
+        """Get all text entries in a specific cluster."""
+        if not self.initialized or clusterID not in self.clusters: 
+            return []
         return [self.entries[eid]["entry_text"] for eid in self.clusters[clusterID]["entry_ids"] if eid in self.entries]
 
     def getClusterName(self, clusterID: str) -> Optional[str]:
-        if not self.initialized or clusterID not in self.clusters: return None
+        """Get the display name of a cluster."""
+        if not self.initialized or clusterID not in self.clusters: 
+            return None
         return self.clusters[clusterID]["cluster_name"]
 
     def getAllClusters(self) -> Dict[str, Dict[str, Any]]:
+        """Get all clusters with their metadata."""
         return {} if not self.initialized else self.clusters.copy()
 
     def getAllEntries(self) -> Dict[str, Dict[str, Any]]:
-        if not self.initialized: return {}
+        """Get all entries with their current cluster assignments."""
+        if not self.initialized: 
+            return {}
         out = {}
         for eid, data in self.entries.items():
-            c = data.copy(); c["clusterID"] = self.entry_to_cluster.get(eid); out[eid] = c
+            c = data.copy()
+            c["clusterID"] = self.entry_to_cluster.get(eid)
+            out[eid] = c
         return out
 
     def getClusterStatistics(self, clusterID: str) -> Optional[Dict[str, Any]]:
-        if not self.initialized or clusterID not in self.clusters: return None
+        """Get statistical information about a cluster."""
+        if not self.initialized or clusterID not in self.clusters: 
+            return None
         eids = self.clusters[clusterID]["entry_ids"]
         probs, lens = [], []
         for eid in eids:
@@ -117,94 +136,177 @@ class FineTuningBackend:
             "max_text_length": max(lens) if lens else 0
         }
 
-    # Writes
-    def is_duplicate_name(self, name: str, exclude_id: str | None = None) -> bool:
+    # =========================================================================
+    # MANIPULATION FUNCTIONS
+    # =========================================================================
+
+    def is_duplicate_name(self, name: str, exclude_cluster_id: str = None) -> bool:
         """Check if cluster name already exists (case-insensitive)."""
-        norm = name.strip().lower()
-        for cid, c in self.clusters.items():
-            if exclude_id and cid == exclude_id:
-                continue
-            if c["cluster_name"].strip().lower() == norm:
+        if not self.initialized:
+            return False
+        
+        name_lower = name.lower().strip()
+        for cid, cluster in self.clusters.items():
+            if cid != exclude_cluster_id and cluster["cluster_name"].lower() == name_lower:
                 return True
         return False
 
-    def moveEntry(self, entryID: str, clusterID: str) -> Tuple[bool, str]:
-        if not self.initialized: return False, "Fine-tuning backend not initialized"
-        if entryID not in self.entries: return False, f"Entry {entryID} does not exist"
-        if clusterID not in self.clusters: return False, f"Cluster {clusterID} does not exist"
+    def moveEntry(self, entryID: str, target_clusterID: str) -> Tuple[bool, str]:
+        """Move entry from one cluster to another."""
+        if not self.initialized:
+            return False, "Backend not initialized"
+        
+        if entryID not in self.entries:
+            return False, f"Entry {entryID} not found"
+        
+        if target_clusterID not in self.clusters:
+            return False, f"Cluster {target_clusterID} not found"
+        
+        # Get current cluster
+        old_cluster_id = self.entry_to_cluster.get(entryID)
+        
+        # If already in target cluster, nothing to do
+        if old_cluster_id == target_clusterID:
+            return True, f"Entry already in {self.clusters[target_clusterID]['cluster_name']}"
+        
+        # Remove from old cluster
+        if old_cluster_id and old_cluster_id in self.clusters:
+            if entryID in self.clusters[old_cluster_id]["entry_ids"]:
+                self.clusters[old_cluster_id]["entry_ids"].remove(entryID)
+        
+        # Add to new cluster
+        self.entry_to_cluster[entryID] = target_clusterID
+        if entryID not in self.clusters[target_clusterID]["entry_ids"]:
+            self.clusters[target_clusterID]["entry_ids"].append(entryID)
+        
+        target_name = self.clusters[target_clusterID]['cluster_name']
+        return True, f"Moved entry to {target_name}"
 
-        cur = self.entry_to_cluster.get(entryID)
-        target_cluster_name = self.clusters[clusterID]["cluster_name"]
-        if cur == clusterID: 
-            return True, f"Entry {entryID} is already in cluster '{target_cluster_name}'"
-        if cur and cur in self.clusters:
-            if entryID in self.clusters[cur]["entry_ids"]:
-                self.clusters[cur]["entry_ids"].remove(entryID)
-        self.clusters[clusterID]["entry_ids"].append(entryID)
-        self.entry_to_cluster[entryID] = clusterID
-        return True, f"Successfully moved entry {entryID} to cluster '{target_cluster_name}'"
-
-    def mergeClusters(self, c1: str, c2: str, new_name: str | None = None) -> Tuple[bool, str]:
-        if not self.initialized: 
-            return False, "Fine-tuning backend not initialized"
-        if c1 not in self.clusters: 
-            return False, f"Cluster {c1} does not exist"
-        if c2 not in self.clusters: 
-            return False, f"Cluster {c2} does not exist"
-        if c1 == c2: 
+    def mergeClusters(self, clusterID1: str, clusterID2: str, new_name: str = None) -> Tuple[bool, str]:
+        """Merge two clusters into one."""
+        if not self.initialized:
+            return False, "Backend not initialized"
+        
+        if clusterID1 not in self.clusters:
+            return False, f"Cluster {clusterID1} not found"
+        
+        if clusterID2 not in self.clusters:
+            return False, f"Cluster {clusterID2} not found"
+        
+        if clusterID1 == clusterID2:
             return False, "Cannot merge cluster with itself"
-        if new_name and self.is_duplicate_name(new_name):
-            return False, f"Cluster name '{new_name}' already exists"
-
-        new_id = f"merged_{self.next_cluster_id}"
+        
+        # Create new merged cluster ID
+        merged_id = f"merged_{self.next_cluster_id}"
         self.next_cluster_id += 1
-        merged_entries = self.clusters[c1]["entry_ids"] + self.clusters[c2]["entry_ids"]
-
-        self.clusters[new_id] = {
-            "clusterID": new_id,
-            "cluster_name": new_name.strip() if new_name else f"Merged_{c1}_{c2}",
-            "entry_ids": merged_entries,
+        
+        # Generate name for merged cluster
+        name1 = self.clusters[clusterID1]["cluster_name"]
+        name2 = self.clusters[clusterID2]["cluster_name"]
+        
+        if new_name and new_name.strip():
+            final_name = new_name.strip()
+        else:
+            final_name = f"{name1}_{name2}"
+        
+        # Check for duplicate name
+        if self.is_duplicate_name(final_name):
+            final_name = f"{final_name}_{merged_id}"
+        
+        # Combine entries from both clusters
+        all_entries = (self.clusters[clusterID1]["entry_ids"] + 
+                      self.clusters[clusterID2]["entry_ids"])
+        
+        # Remove duplicates while preserving order
+        unique_entries = []
+        seen = set()
+        for eid in all_entries:
+            if eid not in seen:
+                unique_entries.append(eid)
+                seen.add(eid)
+        
+        # Create merged cluster
+        self.clusters[merged_id] = {
+            "clusterID": merged_id,
+            "cluster_name": final_name,
+            "entry_ids": unique_entries,
             "created_manually": True,
-            "merged_from": [c1, c2]
+            "merged_from": [clusterID1, clusterID2]
         }
-        for eid in merged_entries:
-            self.entry_to_cluster[eid] = new_id
-        del self.clusters[c1]; del self.clusters[c2]
-        return True, self.clusters[new_id]["cluster_name"]
+        
+        # Update entry-to-cluster mappings
+        for eid in unique_entries:
+            self.entry_to_cluster[eid] = merged_id
+        
+        # Remove old clusters
+        del self.clusters[clusterID1]
+        del self.clusters[clusterID2]
+        
+        return True, final_name
 
-    def changeClusterName(self, clusterID: str, newName: str) -> Tuple[bool, str]:
-        if not self.initialized: 
-            return False, "Fine-tuning backend not initialized"
-        if clusterID not in self.clusters: 
-            return False, f"Cluster {clusterID} does not exist"
-        if not newName or not newName.strip(): 
-            return False, "New name cannot be empty"
-        if self.is_duplicate_name(newName, clusterID):
-            return False, "Duplicate name"
-        old = self.clusters[clusterID]["cluster_name"]
-        self.clusters[clusterID]["cluster_name"] = newName.strip()
-        return True, f"Successfully changed cluster name from '{old}' to '{newName}'"
+    def changeClusterName(self, clusterID: str, new_name: str) -> Tuple[bool, str]:
+        """Change the name of a cluster."""
+        if not self.initialized:
+            return False, "Backend not initialized"
+        
+        if clusterID not in self.clusters:
+            return False, f"Cluster {clusterID} not found"
+        
+        if not new_name or not new_name.strip():
+            return False, "Name cannot be empty"
+        
+        new_name = new_name.strip()
+        
+        # Check for duplicate name (excluding current cluster)
+        if self.is_duplicate_name(new_name, clusterID):
+            return False, f"Name '{new_name}' already exists"
+        
+        old_name = self.clusters[clusterID]["cluster_name"]
+        self.clusters[clusterID]["cluster_name"] = new_name
+        
+        return True, f"Renamed '{old_name}' to '{new_name}'"
 
-    def createNewCluster(self, cluster_name: str) -> Tuple[bool, str]:
-        if not self.initialized: 
-            return False, "Fine-tuning backend not initialized"
-        if not cluster_name or not cluster_name.strip(): 
-            return False, "Cluster name cannot be empty"
-        if self.is_duplicate_name(cluster_name):
-            return False, f"Cluster name '{cluster_name}' already exists"
-        new_id = f"manual_{self.next_cluster_id}"; self.next_cluster_id += 1
+    def createNewCluster(self, name: str) -> Tuple[bool, str]:
+        """Create a new empty cluster."""
+        if not self.initialized:
+            return False, "Backend not initialized"
+        
+        if not name or not name.strip():
+            return False, "Name cannot be empty"
+        
+        name = name.strip()
+        
+        # Check for duplicate name
+        if self.is_duplicate_name(name):
+            return False, f"Name '{name}' already exists"
+        
+        # Generate new cluster ID
+        new_id = f"manual_{self.next_cluster_id}"
+        self.next_cluster_id += 1
+        
+        # Create cluster
         self.clusters[new_id] = {
             "clusterID": new_id,
-            "cluster_name": cluster_name.strip(),
+            "cluster_name": name,
             "entry_ids": [],
             "created_manually": True
         }
-        return True, cluster_name.strip()
+        
+        return True, name
 
     def deleteCluster(self, clusterID: str) -> Tuple[bool, str]:
-        if not self.initialized: return False, "Fine-tuning backend not initialized"
-        if clusterID not in self.clusters: return False, f"Cluster {clusterID} does not exist"
-
+        """Delete a cluster and move its entries to outliers."""
+        if not self.initialized:
+            return False, "Backend not initialized"
+        
+        if clusterID not in self.clusters:
+            return False, f"Cluster {clusterID} not found"
+        
+        # Don't allow deleting outliers cluster
+        if clusterID == "outliers":
+            return False, "Cannot delete the Outliers cluster"
+        
+        # Ensure outliers cluster exists
         if "outliers" not in self.clusters:
             self.clusters["outliers"] = {
                 "clusterID": "outliers",
@@ -212,63 +314,37 @@ class FineTuningBackend:
                 "entry_ids": [],
                 "created_manually": False
             }
-
+        
+        # Move all entries to outliers
+        entries_to_move = self.clusters[clusterID]["entry_ids"][:]
         cluster_name = self.clusters[clusterID]["cluster_name"]
-        moved = list(self.clusters[clusterID]["entry_ids"])
-        for eid in moved:
+        
+        for eid in entries_to_move:
+            # Update mapping
             self.entry_to_cluster[eid] = "outliers"
-            self.clusters["outliers"]["entry_ids"].append(eid)
-
+            # Add to outliers if not already there
+            if eid not in self.clusters["outliers"]["entry_ids"]:
+                self.clusters["outliers"]["entry_ids"].append(eid)
+        
+        # Delete the cluster
         del self.clusters[clusterID]
-        return True, f"Deleted cluster '{cluster_name}' and moved {len(moved)} entries to outliers"
+        
+        return True, f"Deleted '{cluster_name}' and moved {len(entries_to_move)} entries to Outliers"
 
-    def recordClusterResults(self) -> dict:
-        """
-        Rebuild clusters' entry lists from the authoritative entry_to_cluster map,
-        then store a lightweight snapshot in session_state for later steps.
-        """
-        if not self.initialized:
-            return {}
+    # =========================================================================
+    # EXPORT AND REPORTING
+    # =========================================================================
 
-        # Reset membership lists
-        for cid in list(self.clusters.keys()):
-            self.clusters[cid]["entry_ids"] = []
-
-        # Reindex from entry_to_cluster (authoritative)
-        for eid, cid in self.entry_to_cluster.items():
-            if cid not in self.clusters:
-                # Minimal safety: create a container if moves targeted a new id
-                self.clusters[cid] = {
-                    "clusterID": cid,
-                    "cluster_name": cid,
-                    "entry_ids": [],
-                    "created_manually": True,
-                }
-            self.clusters[cid]["entry_ids"].append(eid)
-
-        # Persist a snapshot for downstream steps
-        snapshot = {
-            "entry_to_cluster": self.entry_to_cluster.copy(),
-            "clusters": {
-                cid: {
-                    "clusterID": c["clusterID"],
-                    "cluster_name": c["cluster_name"],
-                    "entry_ids": list(c["entry_ids"]),
-                }
-                for cid, c in self.clusters.items()
-            },
-        }
-        st.session_state["finetuning_last_results"] = snapshot
-        return snapshot
-
-
-    # Export
-    def exportFineTunedResults(self, original_data: pd.DataFrame, text_column: str, subject_id_column: str | None = None) -> pd.DataFrame:
-        if not self.initialized: return pd.DataFrame()
+    def exportFineTunedResults(self, original_data: pd.DataFrame, entry_column: str, subject_id_column: str | None = None) -> pd.DataFrame:
+        """Export fine-tuned results as DataFrame."""
+        if not self.initialized: 
+            return pd.DataFrame()
+        
         rows: List[Dict[str, Any]] = []
         for eid, data in self.entries.items():
             cid = self.entry_to_cluster.get(eid, "unassigned")
             cname = self.getClusterName(cid) or "Unassigned"
+            
             rows.append({
                 "entryID": eid,
                 "subjectID": data.get("subjectID"),
@@ -279,26 +355,39 @@ class FineTuningBackend:
                 "probability": data.get("probability", 0),
                 "manually_modified": cid.startswith("manual_") or cid.startswith("merged_")
             })
+        
         return pd.DataFrame(rows)
 
     def getModificationSummary(self) -> Dict[str, Any]:
-        if not self.initialized: return {}
-        manual = [cid for cid, c in self.clusters.items() if c.get("created_manually", False)]
-        merged = [cid for cid, c in self.clusters.items() if "merged_from" in c]
+        """Get summary of modifications made during fine-tuning."""
+        if not self.initialized: 
+            return {}
+        
+        manual_clusters = [cid for cid, c in self.clusters.items() if c.get("created_manually", False)]
+        merged_clusters = [cid for cid, c in self.clusters.items() if "merged_from" in c]
+        
         total_entries = len(self.entries)
-        entries_in_manual = sum(len(self.clusters[cid]["entry_ids"]) for cid in manual)
+        entries_in_manual = sum(len(self.clusters[cid]["entry_ids"]) for cid in manual_clusters)
+        
         return {
             "total_clusters": len(self.clusters),
-            "manual_clusters_created": len(manual),
-            "clusters_merged": len(merged),
+            "manual_clusters_created": len(manual_clusters),
+            "clusters_merged": len(merged_clusters),
             "total_entries": total_entries,
             "entries_in_manual_clusters": entries_in_manual,
             "modification_percentage": (entries_in_manual / total_entries * 100) if total_entries > 0 else 0
         }
 
+
+# =========================================================================
+# SINGLETON ACCESSOR
+# =========================================================================
+
 # Optional singleton
 _finetuning_backend = None
+
 def get_finetuning_backend() -> FineTuningBackend:
+    """Get the global fine-tuning backend instance."""
     global _finetuning_backend
     if _finetuning_backend is None:
         _finetuning_backend = FineTuningBackend()

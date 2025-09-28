@@ -1,14 +1,14 @@
-# backend/results_backend.py
 from typing import Dict, Any, List
 import pandas as pd
 import streamlit as st
 from .activity_logger import ActivityLogger
+
 class ResultsBackend:
     def __init__(self, logger: ActivityLogger):
         self.logger = logger
 
     def export_results(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
-                       text_column: str, session_id: str = "") -> pd.DataFrame:
+                       entry_column: str, session_id: str = "") -> pd.DataFrame:
         if not clustering_results.get("success"):
             raise ValueError("Cannot export unsuccessful clustering results")
 
@@ -44,13 +44,13 @@ class ResultsBackend:
                     if 'entryID' in original_data.columns else (oidx + 1)
                 )
 
-            user_text_col = user_sel.get('text_column_choice', text_column)
+            user_entry_col = user_sel.get('entry_column_choice', entry_column)
 
             # Store original text under a fixed column name
             if oidx < len(original_texts):
                 row['original_text'] = original_texts[oidx]
             else:
-                row['original_text'] = str(original_data[user_text_col].iloc[oidx]) if user_text_col in original_data.columns else "N/A"
+                row['original_text'] = str(original_data[user_entry_col].iloc[oidx]) if user_entry_col in original_data.columns else "N/A"
 
             row['processed_text'] = ptxt
             row['cluster_id'] = topic
@@ -85,12 +85,12 @@ class ResultsBackend:
                         if 'entryID' in original_data.columns else (oidx + 1)
                     )
 
-                user_text_col = user_sel.get('text_column_choice', text_column)
+                user_entry_col = user_sel.get('entry_column_choice', entry_column)
 
                 if oidx < len(original_texts):
                     row['original_text'] = original_texts[oidx]
                 else:
-                    row['original_text'] = str(original_data[user_text_col].iloc[oidx]) if user_text_col in original_data.columns else "N/A"
+                    row['original_text'] = str(original_data[user_entry_col].iloc[oidx]) if user_entry_col in original_data.columns else "N/A"
 
                 row['processed_text'] = None
                 row['cluster_id'] = None
@@ -113,17 +113,14 @@ class ResultsBackend:
         return df
 
     def create_essential_export(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
-                              text_column: str, session_id: str = "") -> pd.DataFrame:
-        # Build a minimal, Arrow-friendly summary with exactly four columns
-        detailed = self.export_results(clustering_results, original_data, text_column, session_id)
+                              entry_column: str, session_id: str = "") -> pd.DataFrame:
+        detailed = self.export_results(clustering_results, original_data, entry_column, session_id)
         cols = ['entryID', 'original_text', 'cluster_id', 'cluster_label']
-        # keep only the requested columns (in order)
         return detailed[cols].copy()
 
     def create_detailed_export(self, clustering_results: Dict[str, Any], original_data: pd.DataFrame,
-                               text_column: str, session_id: str = "") -> pd.DataFrame:
-        # Build a detailed export with all relevant columns
-        detailed = self.export_results(clustering_results, original_data, text_column, session_id)
+                               entry_column: str, session_id: str = "") -> pd.DataFrame:
+        detailed = self.export_results(clustering_results, original_data, entry_column, session_id)
         cols = [
             'entryID',
             'subjectID',
@@ -136,79 +133,48 @@ class ResultsBackend:
         ]
         return detailed[cols].copy()
 
-    def create_summary_report(self, clustering_results: Dict[str, Any],
-                              preprocessing_info: Dict[str, Any], session_id: str = "") -> str:
-        s = clustering_results["statistics"]
-        c = clustering_results["confidence_analysis"]
-        p = clustering_results["performance"]
-        params = clustering_results["parameters_used"]
+    def create_summary_report(
+        self,
+        clustering_results: Dict[str, Any],
+        preprocessing_settings: Dict[str, Any],
+        session_id: str = ""
+    ) -> str:
+        """Generate a plain-text summary report of clustering results."""
+        if not clustering_results.get("success"):
+            return "Clustering was not successful. No summary report available."
 
-        report = f"""
-CLUSTERY - TEXT CLUSTERING ANALYSIS REPORT
-=========================================
+        stats = clustering_results.get("statistics", {})
+        confidence = clustering_results.get("confidence_analysis", {})
+        performance = clustering_results.get("performance", {})
+        metadata = clustering_results.get("metadata", {})
 
-Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
-Session ID: {session_id}
+        lines = []
+        lines.append("=== Clustery Summary Report ===")
+        lines.append(f"Session ID: {session_id}")
+        lines.append("")
+        lines.append("=== Preprocessing Settings ===")
+        for k, v in preprocessing_settings.items():
+            lines.append(f"- {k}: {v}")
+        lines.append("")
+        lines.append("=== Clustering Statistics ===")
+        for k, v in stats.items():
+            lines.append(f"- {k}: {v}")
+        lines.append("")
+        lines.append("=== Confidence Analysis ===")
+        for k, v in confidence.items():
+            lines.append(f"- {k}: {v}")
+        lines.append("")
+        lines.append("=== Performance ===")
+        for k, v in performance.items():
+            lines.append(f"- {k}: {v}")
+        lines.append("")
+        lines.append("=== Topic Keywords ===")
+        for cid, kws in metadata.get("topic_keywords", {}).items():
+            lines.append(f"Cluster {cid}: {', '.join(kws)}")
+        
+        self.logger.log_activity("create_summary_report", session_id, {
+            "rows": stats.get("total_texts", 0),
+            "clusters": stats.get("n_clusters", 0)
+        })
 
-DATASET SUMMARY
---------------
-Total Texts Analyzed: {s['total_texts']}
-Preprocessing Method: {preprocessing_info.get('method', 'Unknown')}
-Processing Details: {preprocessing_info.get('details', 'N/A')}
-
-CLUSTERING RESULTS
------------------
-Clusters Found: {s['n_clusters']}
-Successfully Clustered: {s['clustered']} ({s['success_rate']:.1f}%)
-Outliers: {s['outliers']} ({(s['outliers']/s['total_texts']*100):.1f}%)
-
-CONFIDENCE ANALYSIS
-------------------
-High Confidence (≥0.7): {c['high_confidence']} ({(c['high_confidence']/s['total_texts']*100):.1f}%)
-Medium Confidence (0.3-0.7): {c['medium_confidence']} ({(c['medium_confidence']/s['total_texts']*100):.1f}%)
-Low Confidence (<0.3): {c['low_confidence']} ({(c['low_confidence']/s['total_texts']*100):.1f}%)
-Average Confidence: {c['avg_confidence']:.3f}
-
-PERFORMANCE METRICS
-------------------
-Total Processing Time: {p['total_time']:.2f} seconds
-Model Setup Time: {p['setup_time']:.2f} seconds
-Clustering Time: {p['clustering_time']:.2f} seconds
-
-PARAMETERS USED
---------------
-"""
-        for k, v in params.items():
-            report += f"{k.replace('_', ' ').title()}: {v}\n"
-        report += "\nGenerated by Clustery - Intelligent Text Clustering Tool\n"
-        return report
-
-    def get_session_analytics(self, session_data: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-        from datetime import datetime
-        if session_id not in session_data:
-            return {"error": "Session not found"}
-        session = session_data[session_id]
-        duration = (datetime.now() - session["start_time"]).total_seconds()
-
-        completion = {
-            "data_loaded": session["data_loaded"],
-            "preprocessing_completed": session["preprocessing_completed"],
-            "clustering_completed": session["clustering_completed"],
-            "results_exported": session["results_exported"]
-        }
-        pct = (sum(bool(v) for v in completion.values()) / len(completion)) * 100
-        counts = {}
-        for a in session["activities"]:
-            t = a["type"]
-            counts[t] = counts.get(t, 0) + 1
-
-        return {
-            "session_id": session_id,
-            "duration_seconds": duration,
-            "completion_percentage": pct,
-            "completion_status": completion,
-            "activity_counts": counts,
-            "current_tab": session["current_tab"],
-            "total_activities": len(session["activities"]),
-            "user_info": session["user_info"]
-        }
+        return "\n".join(lines)

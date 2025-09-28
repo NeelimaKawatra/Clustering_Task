@@ -31,7 +31,7 @@ def tab_clustering(backend_available):
     st.subheader("Clustering Configuration")
     
     # Show data status
-    st.success(f"Ready to cluster {len(processed_texts)} preprocessed texts")
+    st.success(f"Ready to cluster {len(processed_texts)} preprocessed text entries")
     
     # Get parameter recommendations
     try:
@@ -98,10 +98,23 @@ def tab_clustering(backend_available):
         "n_neighbors": recommended_params.get("n_neighbors", 15)
     }
     
-    # Show parameter summary
-    with st.expander("Parameter Summary"):
-        st.json(clustering_params)
-    
+    # Show parameter summary in user-friendly format
+    with st.expander("Clustering Configuration Summary", expanded=False):
+        st.markdown("**Your Selected Settings:**")
+        
+        # User-friendly parameter descriptions
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write(f"• **Target Clusters:** {clustering_params.get('min_topic_size', 'N/A')}")
+            st.write(f"• **Complexity Reduction:** {clustering_params.get('n_components', 'N/A')} dimensions")
+            
+        with col2:
+            st.write(f"• **Similarity Measure:** {clustering_params.get('metric', 'cosine').title()}")
+            st.write(f"• **Random Seed:** {clustering_params.get('random_state', 42)}")
+        
+        st.caption("These settings control how the algorithm groups your text entries into clusters.")
+        
     # Run clustering button
     st.markdown("---")
     
@@ -172,14 +185,27 @@ def run_clustering_analysis(processed_texts, clustering_params, backend_availabl
                 
             else:
                 error_msg = clustering_results.get("error", "Unknown error occurred")
-                st.error(f"Clustering failed: {error_msg}")
+                st.error(f"❌ {error_msg}")
                 
-                # Show debug info if available
+                # Show helpful suggestions
+                suggestions = clustering_results.get("suggestions", [])
+                if suggestions:
+                    st.markdown("**💡 Try these solutions:**")
+                    for suggestion in suggestions:
+                        st.write(f"• {suggestion}")
+                
+                # Show technical error in debug section
+                technical_error = clustering_results.get("technical_error")
                 debug_info = clustering_results.get("debug_info", {})
-                if debug_info:
-                    with st.expander("Debug Information"):
-                        st.json(debug_info)
                 
+                if technical_error or debug_info:
+                    with st.expander("🔧 Technical Details (for debugging)"):
+                        if technical_error:
+                            st.code(technical_error)
+                            st.caption("Original error message for technical support.")
+                        if debug_info:
+                            st.json(debug_info)
+                            
         except Exception as e:
             progress_bar.empty()
             status_text.empty()
@@ -217,7 +243,7 @@ def show_clustering_results():
     with col1:
         st.metric("Clusters Found", stats.get("n_clusters", "N/A"))
     with col2:
-        st.metric("Texts Clustered", stats.get("clustered", "N/A"))
+        st.metric("Text Entries Clustered", stats.get("clustered", "N/A"))
     with col3:
         success_rate = stats.get("success_rate", 0)
         st.metric("Success Rate", f"{success_rate:.1f}%")

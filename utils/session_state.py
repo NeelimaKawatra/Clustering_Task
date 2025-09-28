@@ -14,7 +14,7 @@ def initialize_session_state(backend_available=True):
     if 'user_selections' not in st.session_state:
         st.session_state.user_selections = {
             'id_column_choice': None,
-            'text_column_choice': None,
+            'entry_column_choice': None,  # Changed from 'text_column_choice'
             'original_columns': []
         }
     
@@ -22,8 +22,8 @@ def initialize_session_state(backend_available=True):
     if 'subjectID' not in st.session_state:
         st.session_state.subjectID = "-- Select a subject ID column--"
     
-    if 'text_column' not in st.session_state:
-        st.session_state.text_column = "-- Select a text column --"
+    if 'entry_column' not in st.session_state:  # Changed from 'text_column'
+        st.session_state.entry_column = "-- Select an entry column --"  # Updated text
     
     # Processing data
     if 'original_texts' not in st.session_state:
@@ -117,7 +117,7 @@ def reset_analysis():
     # FIXED: Also reset column selections when doing full analysis reset
     column_selection_keys = [
         'subjectID', 
-        'text_column', 
+        'entry_column',  # Changed from 'text_column'
         'user_selections'
     ]
     
@@ -140,11 +140,11 @@ def reset_analysis():
         if key == 'user_selections':
             st.session_state[key] = {
                 'id_column_choice': None,
-                'text_column_choice': None,
+                'entry_column_choice': None,  # Changed from 'text_column_choice'
                 'original_columns': []
             }
-        elif key == 'text_column':
-            st.session_state[key] = "-- Select a text column --"
+        elif key == 'entry_column':  # Changed from 'text_column'
+            st.session_state[key] = "-- Select an entry column --"  # Updated text
         elif key == 'subjectID':
             st.session_state[key] = "-- Select a subject ID column--"
     
@@ -230,7 +230,7 @@ def detect_changes_and_cascade():
     current_fingerprint = {
         'file_key': st.session_state.get('previous_file_key'),
         'df_shape': tuple(st.session_state.df.shape) if st.session_state.get('df') is not None else None,
-        'text_column': st.session_state.get('text_column'),
+        'entry_column': st.session_state.get('entry_column'),  # Changed from 'text_column'
         'id_column': st.session_state.get('subjectID')
     }
     
@@ -250,11 +250,11 @@ def detect_changes_and_cascade():
         significant_changes.append("data_structure")
     
     # Column selection changes - should reset downstream processing
-    if (current_fingerprint.get('text_column') != previous_fingerprint.get('text_column') and
-        previous_fingerprint.get('text_column') is not None and
-        previous_fingerprint.get('text_column') not in ["-- Select a text column --", None] and
-        current_fingerprint.get('text_column') not in ["-- Select a text column --", None]):
-        significant_changes.append("text_column")
+    if (current_fingerprint.get('entry_column') != previous_fingerprint.get('entry_column') and  # Changed from 'text_column'
+        previous_fingerprint.get('entry_column') is not None and  # Changed from 'text_column'
+        previous_fingerprint.get('entry_column') not in ["-- Select an entry column --", None] and  # Updated text
+        current_fingerprint.get('entry_column') not in ["-- Select an entry column --", None]):  # Updated text
+        significant_changes.append("entry_column")  # Changed from "text_column"
     
     # treat changes between real selections as significant (ignore prompts/None)
     if (current_fingerprint.get('id_column') != previous_fingerprint.get('id_column') and
@@ -276,14 +276,14 @@ def check_automatic_completion():
     # Auto-complete Data Loading
     if (not st.session_state.get('tab_data_loading_complete', False) and
         st.session_state.get('df') is not None and
-        st.session_state.get('text_column') is not None and
-        st.session_state.get('text_column') != "-- Select a text column --"):
+        st.session_state.get('entry_column') is not None and  # Changed from 'text_column'
+        st.session_state.get('entry_column') not in [None, "-- Select an entry column --"]):  # Updated text
         
         if hasattr(st.session_state, 'backend') and st.session_state.backend:
             try:
                 validation = st.session_state.backend.validate_columns(
                     st.session_state.df, 
-                    st.session_state.text_column,
+                    st.session_state.entry_column,  # Changed from 'text_column'
                     st.session_state.subjectID,
                     st.session_state.session_id
                 )
@@ -297,7 +297,7 @@ def check_automatic_completion():
     if (not st.session_state.get('tab_preprocessing_complete', False) and
         st.session_state.get('tab_data_loading_complete', False) and
         st.session_state.get('processed_texts') is not None and
-        len(st.session_state.get('processed_texts', [])) >= 10):
+        len(st.session_state.get('processed_texts', [])) > 0):  # Changed from >= 10 to > 0
         
         st.session_state.tab_preprocessing_complete = True
     
@@ -340,7 +340,7 @@ def preserve_column_selections():
     # This is called during navigation to ensure selections are maintained
     preserved_selections = {
         'subjectID': st.session_state.get('subjectID'),
-        'text_column': st.session_state.get('text_column'),
+        'entry_column': st.session_state.get('entry_column'),  # Changed from 'text_column'
         'user_selections': st.session_state.get('user_selections', {}).copy()
     }
     return preserved_selections
@@ -379,11 +379,3 @@ def auto_navigate_to_next_available():
     
     # Store for debugging
     st.session_state.auto_nav_target = next_step
-    
-    """
-    # Optional: Show a brief success message
-    if hasattr(st, 'success'):
-        current_step = st.session_state.get('current_page', 'unknown')
-        if current_step != next_step:
-            st.success(f"✅ Step completed! Ready for {next_step.replace('_', ' ').title()}")
-    """

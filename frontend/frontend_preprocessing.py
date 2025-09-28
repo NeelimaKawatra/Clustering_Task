@@ -1,4 +1,4 @@
-# tabs/preprocessing.py - Clean version without debug code
+# frontend/frontend_preprocessing.py - Clean version without debug code
 import streamlit as st
 import pandas as pd
 
@@ -38,16 +38,17 @@ def tab_preprocessing(backend_available):
 
     # Get data from previous tab
     df = st.session_state.df
-    text_column = st.session_state.text_column
+    entry_column = st.session_state.entry_column
     
-    if df is None or text_column is None:
+    if df is None or entry_column is None:
         st.error("No data found. Please complete Data Loading first.")
         return
     
     st.subheader("Choose Preprocessing Level")
+    st.markdown("Clean and prepare your text entries for optimal clustering results.")
     
     # Get and store original texts consistently
-    original_texts = df[text_column].fillna("").astype(str).tolist()
+    original_texts = df[entry_column].fillna("").astype(str).tolist()
     st.session_state.original_texts = original_texts
     
     # Get recommendations
@@ -60,7 +61,7 @@ def tab_preprocessing(backend_available):
         recommendations = {'suggested_method': 'basic'}
 
     # Show current data status
-    st.success(f"Ready to preprocess {len(original_texts)} texts from your data")
+    st.success(f"Ready to preprocess {len(original_texts)} text entries from your data")
 
     # Preprocessing options
     with st.expander("Understanding Preprocessing Options"):
@@ -145,7 +146,7 @@ def tab_preprocessing(backend_available):
                 # Store simplified row alignment - just the valid indices
                 st.session_state.row_alignment = metadata.get('valid_row_indices', list(range(len(processed_texts))))
                 
-                st.success(f"Processing complete! {len(processed_texts)} texts ready for clustering.")
+                st.success(f"Processing complete! {len(processed_texts)} preprocessed text entries ready for clustering.")
                 st.rerun()
                 
             except Exception as e:
@@ -249,7 +250,7 @@ def show_processing_results():
         if should_rerun:
             st.rerun()
         
-        st.info("Proceed to the **Clustering** tab to analyze your preprocessed texts.")
+        st.info("Proceed to the **Clustering** tab to analyze your preprocessed text entries.")
         
     else:
         st.error(f"Need at least 10 valid texts for clustering. Current: {len(processed_texts)}")

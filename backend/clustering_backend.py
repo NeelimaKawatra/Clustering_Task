@@ -201,15 +201,27 @@ class ClusteringBackend:
 
         except Exception as e:
             dur = time.time() - start
-            self.logger.log_error("clustering_failed", session_id, str(e), {
+            error_message = str(e)
+            
+            # Convert technical errors to user-friendly messages
+            user_friendly_error = self._convert_to_user_friendly_error(error_message, texts, params)
+            
+            self.logger.log_error("clustering_failed", session_id, error_message, {
                 "duration": dur,
                 "parameters": params,
                 "text_count": len(texts),
+                "user_friendly_error": user_friendly_error,
                 "attempts_made": getattr(self.model, "attempts_made", [])
             })
-            return {"success": False, "error": str(e), "duration": dur,
-                    "debug_info": {"attempts_made": getattr(self.model, "attempts_made", [])}}
-
+            
+            return {
+                "success": False, 
+                "error": user_friendly_error,  # Show friendly error to user
+                "technical_error": error_message,  # Keep technical error for debugging
+                "duration": dur,
+                "suggestions": self._get_error_suggestions(error_message, texts, params),
+                "debug_info": {"attempts_made": getattr(self.model, "attempts_made", [])}
+            }
     def get_cluster_details(self, results: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         if not results.get("success"):
             return {"error": "No valid clustering results"}
@@ -252,3 +264,71 @@ class ClusteringBackend:
                 "confidences": oprobs
             }
         return details
+    def _convert_to_user_friendly_error(self, error_message: str, texts: List[str], params: Dict[str, Any]) -> str:
+        """Convert technical error messages to user-friendly explanations."""
+        
+        error_lower = error_message.lower()
+        
+        # TF-IDF vocabulary errors
+        if "no terms remain" in error_lower or "min_df" in error_lower or "max_df" in error_lower:
+            return (
+                f"Your text entries don't have enough variety for clustering. "
+                f"This usually happens when texts are very similar or very short. "
+                f"Try using different preprocessing settings or adding more diverse text entries."
+            )
+        
+        # Insufficient data errors
+        if "not enough" in error_lower or "insufficient" in error_lower:
+            return (
+                f"Need more text entries for reliable clustering. "
+                f"Current: {len(texts)} entries. Try adding more data or reducing the number of target clusters."
+            )
+        
+        # Memory or performance errors
+        if "memory" in error_lower or "timeout" in error_lower:
+            return (
+                "The clustering process requires too much computing power for your data. "
+                "Try reducing the number of target clusters or using more aggressive preprocessing."
+            )
+        
+        # Model setup errors
+        if "setup" in error_lower or "initialization" in error_lower:
+            return (
+                "Unable to set up the clustering algorithm with your current settings. "
+                "Try using the recommended parameters or different preprocessing options."
+            )
+        
+        # Generic fallback for unknown errors
+        return (
+            f"Clustering encountered an issue with your data or settings. "
+            f"Try adjusting your parameters or preprocessing options."
+        )
+
+    def _get_error_suggestions(self, error_message: str, texts: List[str], params: Dict[str, Any]) -> List[str]:
+        """Get specific suggestions based on the error type."""
+        
+        suggestions = []
+        error_lower = error_message.lower()
+        
+        if "no terms remain" in error_lower:
+            suggestions = [
+                "Try less aggressive preprocessing (use 'Basic' instead of 'Advanced')",
+                "Ensure your text entries contain meaningful words",
+                f"Check that your {len(texts)} text entries have sufficient content",
+                "Verify your text entries are in the expected language"
+            ]
+        elif "not enough" in error_lower:
+            suggestions = [
+                f"Add more text entries (current: {len(texts)})",
+                f"Reduce target clusters from {params.get('min_topic_size', 'N/A')} to a smaller number",
+                "Check if preprocessing filtered out too many entries"
+            ]
+        else:
+            suggestions = [
+                "Try the recommended parameter settings",
+                "Use less aggressive preprocessing",
+                "Check your text data quality",
+                "Reduce the number of target clusters"
+            ]
+        
+        return suggestions

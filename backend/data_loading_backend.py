@@ -39,7 +39,6 @@ class DataLoadingBackend:
                 })
                 orig = len(df)
                 df = df.head(300)
-                # Do not emit a transient Streamlit warning; include it in the return message instead.
                 trunc_note = f" (truncated to 300 rows from {orig})"
 
             self.logger.log_activity("file_loaded_successfully", session_id, {
@@ -62,9 +61,17 @@ class DataLoadingBackend:
             return pd.read_excel(file_path)
         raise ValueError(f"Unsupported file format: {ext}")
 
-    def validate_columns(self, df: pd.DataFrame, text_column: str, id_column: Optional[str], session_id: str) -> Dict[str, Any]:
+    def validate_columns(self, df: pd.DataFrame, entry_column: str, id_column: Optional[str], session_id: str) -> Dict[str, Any]:
+        """
+        Validate the chosen entry and ID columns.
+        Returns dict with standardized keys used by frontend:
+          - text_column_valid
+          - text_column_message
+          - text_quality
+        """
         result = {
             "text_column_valid": False,
+            "text_column_message": "",
             "id_column_analysis": {},
             "text_quality": {},
             "recommendations": []
@@ -80,14 +87,14 @@ class DataLoadingBackend:
                 "unique": len(df)
             }
 
-        is_valid, msg = self.text_processor.validate_text_column(df[text_column])
+        is_valid, msg = self.text_processor.validate_text_column(df[entry_column])
         result["text_column_valid"] = is_valid
         result["text_column_message"] = msg
         if is_valid:
-            result["text_quality"] = self.text_processor.analyze_text_quality(df[text_column].tolist())
+            result["text_quality"] = self.text_processor.analyze_text_quality(df[entry_column].tolist())
 
         self.logger.log_activity("column_validation", session_id, {
-            "text_column": text_column,
+            "entry_column": entry_column,
             "text_valid": is_valid,
             "text_quality": result["text_quality"]
         })
@@ -112,7 +119,7 @@ class DataLoadingBackend:
             "unique": int(non_null.nunique())
         }
 
-    def get_text_column_suggestions(self, df: pd.DataFrame, session_id: str) -> List[str]:
+    def get_entry_column_suggestions(self, df: pd.DataFrame, session_id: str) -> List[str]:
         cols = []
         for col in df.columns:
             # skips entryID and numeric columns
@@ -121,7 +128,7 @@ class DataLoadingBackend:
             ok, _ = self.text_processor.validate_text_column(df[col])
             if ok:
                 cols.append(col)
-        self.logger.log_activity("text_column_suggestions", session_id, {
+        self.logger.log_activity("entry_column_suggestions", session_id, {
             "suggested_columns": cols,
             "total_columns": len(df.columns)
         })
@@ -143,34 +150,33 @@ class DataLoadingBackend:
         for col in df.columns:
             s = df[col]
 
-            # Replace string sentinels with NA to help numeric/datetime coercion
+            # Replace string sentinels with NA
             if ptypes.is_object_dtype(s):
                 df[col] = s.replace(list(NON_NUMERIC_TOKENS), pd.NA)
 
-            s = df[col]  # refresh reference
+            s = df[col]
 
-            # Datetime: if ~90% parseable, cast to datetime
+            # Datetime: if ~90% parseable
             if ptypes.is_object_dtype(s):
                 try_dt = pd.to_datetime(s, errors="coerce", utc=False)
                 if try_dt.notna().mean() >= 0.9:
                     df[col] = try_dt
                     continue
 
-            # Mostly numeric? cast to Int64/Float64
+            # Mostly numeric? cast
             if ptypes.is_object_dtype(s):
                 s_num = pd.to_numeric(s, errors="coerce")
                 if s_num.notna().mean() >= 0.9:
                     if (s_num.dropna() % 1 == 0).all():
-                        df[col] = s_num.astype("Int64")   # nullable int
+                        df[col] = s_num.astype("Int64")
                     else:
-                        df[col] = s_num.astype("Float64") # nullable float
+                        df[col] = s_num.astype("Float64")
                     continue
                 else:
-                    # treat as text
                     df[col] = s.astype("string")
                     continue
 
-            # Normalize standard dtypes to Arrow-friendly nullable ones
+            # Normalize
             if ptypes.is_integer_dtype(s):
                 df[col] = s.astype("Int64")
             elif ptypes.is_float_dtype(s):

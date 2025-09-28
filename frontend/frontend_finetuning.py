@@ -110,7 +110,8 @@ def _initialize_backend() -> bool:
     if not subject_id_column and "entryID" in df.columns:
         subject_id_column = "entryID"
 
-    text_column = st.session_state.text_column
+    text_column = st.session_state.get("entry_column")
+
     
     success = backend.initialize_from_clustering_results(
         clustering_results, df, text_column, subject_id_column
@@ -374,7 +375,7 @@ def show_entry_management_interface(backend):
 
         with col1:
             st.markdown("**Find Entry**")
-            search_text = st.text_input("Search in entry text", placeholder="Type to search...")
+            search_text = st.text_input("Search in text entries", placeholder="Type to search...")
 
             if search_text:
                 matching_entries = [

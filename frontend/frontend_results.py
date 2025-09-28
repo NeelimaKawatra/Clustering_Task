@@ -5,14 +5,12 @@ def tab_results(backend_available):
     
     # Track tab visit
     if backend_available:
-        st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "results"})
+        st.session_state.backend.track_activity(
+            st.session_state.session_id,
+            "tab_visit",
+            {"tab_name": "results"}
+        )
     
-    #st.header("📊 Clustering Results")
-
-    
-    
-   # Add this at the beginning of tab_results function, after the track_activity call:
-
     # Check prerequisites first
     if not st.session_state.get('tab_data_loading_complete', False):
         st.error("Please complete Data Loading first!")
@@ -33,16 +31,9 @@ def tab_results(backend_available):
     if not backend_available:
         st.error("Backend services not available. Please check backend installation.")
         return
-    
 
-    # only get clutering results
-    #results = st.session_state.clustering_results
-
-    
     # Prefer Fine-tuning snapshot if available; else use original clustering results
     results = st.session_state.get("finetuning_results") or st.session_state.clustering_results
-
-    
 
     stats = results["statistics"]
     confidence = results["confidence_analysis"]
@@ -94,13 +85,10 @@ def tab_results(backend_available):
         st.metric("🔴 Low Confidence", f"{confidence['low_confidence']}", f"{low_pct:.1f}%")
         st.caption("Probability < 0.3")
     
-    
-    
     #######################################################
     st.subheader("📝 Cluster Details")
     #######################################################
 
-    # Cluster details (single list: folder-style header + details content)
     cluster_details = st.session_state.backend.get_cluster_details(results, st.session_state.session_id)
 
     def _render_cluster(cid: int, d: dict):
@@ -112,11 +100,7 @@ def tab_results(backend_available):
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                #if keywords:
-                #    st.write("**🔤 Top Keywords:**")
-                #    st.write(", ".join(keywords))
-
-                st.write("**📄 Sample Texts:**")
+                st.write("**📄 Sample Text Entries:**")
                 for text, prob in d.get("top_texts", [])[:5]:
                     badge = "🟢" if prob >= 0.7 else ("🟡" if prob >= 0.3 else "🔴")
                     short = text[:150] + ("..." if len(text) > 150 else "")
@@ -133,49 +117,39 @@ def tab_results(backend_available):
 
     if -1 in cluster_details and cluster_details[-1].get("size", 0) > 0:
         _render_cluster(-1, cluster_details[-1])
-
-
     
-
-    
-   # Export section with dual views
+    # Export section
     st.markdown("---")
     st.subheader("Export Results")
 
-    # Export view selector
     export_view = st.radio(
         "Choose export view:",
         ["Summary View (Essential columns only)", "Detailed View (All columns)"],
         horizontal=True
     )
 
-    # Get the appropriate dataframe
     if export_view == "Summary View (Essential columns only)":
-        # Create summary-view export
         results_df = st.session_state.backend.create_essential_export(
             results,
             st.session_state.df,
-            st.session_state.text_column,
+            st.session_state.entry_column,   # ✅ FIXED
             st.session_state.session_id
         )
         export_type = "summary"
         filename_suffix = "_summary"
     else:
-        # Create detailed-view export
         results_df = st.session_state.backend.create_detailed_export(
             results,
             st.session_state.df,
-            st.session_state.text_column,
+            st.session_state.entry_column,   # ✅ FIXED
             st.session_state.session_id
         )
         export_type = "detailed"
         filename_suffix = "_detailed"
 
-    # Show preview of selected export
     st.write(f"**Preview of {export_type}-view export data:**")
     st.dataframe(results_df, use_container_width=True, hide_index=True, height=400)
 
-    # Show column information
     with st.expander("Results Columns Information"):
         if export_type == "summary":
             st.write("**Summary View Columns:**")
@@ -188,14 +162,12 @@ def tab_results(backend_available):
             st.write("• entryID: Row numbers from your original dataset")
             st.write("• subjectID: Subject identifier chosen by user")
             st.write("• original_text: Raw text from dataset")
-            st.write("• preprocessed_text: Text after preprocessing steps")
+            st.write("• processed_text: Text after preprocessing steps")
             st.write("• cluster_id: Assigned cluster number (-1 = outlier)")
             st.write("• cluster_label: Descriptive cluster name based on keywords")
             st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
             st.write("• confidence_level: High, Medium, or Low based on confidence score")
 
-
-    # Export buttons
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -207,14 +179,12 @@ def tab_results(backend_available):
             "text/csv",
             use_container_width=True
         ):
-            # Track export
             st.session_state.backend.track_activity(st.session_state.session_id, "export", {
                 "export_type": f"csv_{export_type}",
                 "export_info": {"rows": len(results_df), "format": "csv", "view": export_type}
             })
 
     with col2:
-        # generate a clustery report
         summary_report = st.session_state.backend.create_summary_report(
             results,
             st.session_state.preprocessing_settings,
@@ -239,4 +209,3 @@ def tab_results(backend_available):
             reset_analysis()
             st.success("Ready for new analysis! Go to Data Loading tab.")
             st.rerun()
-
