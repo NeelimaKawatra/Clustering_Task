@@ -119,7 +119,7 @@ def tab_clustering(backend_available):
     # Run clustering button
     st.markdown("---")
     
-    if st.button("🔍 Run Clustering Analysis", type="primary", use_container_width=True):
+    if st.button("🔍 Run Clustering Analysis", type="primary", width="stretch"):
         # Check if re-clustering will affect fine-tuning work using unified reset system
         if st.session_state.get('finetuning_initialized'):
             st.warning("🔄 Running new clustering will reset your fine-tuning work!")
@@ -319,7 +319,7 @@ def show_cluster_details_table(cluster_details, results):
     
     if cluster_data:
         cluster_df = pd.DataFrame(cluster_data)
-        st.dataframe(cluster_df, use_container_width=True, hide_index=True)
+        st.dataframe(cluster_df, width="stretch", hide_index=True)
     
     # Detailed cluster inspection
     with st.expander("Detailed Cluster Inspection", expanded=False):

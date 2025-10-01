@@ -263,7 +263,7 @@ def tab_data_loading(backend_available):
     with st.expander("Data Preview", expanded=True):
         st.markdown("**Your Loaded Data (first 300 rows):**")
         cols = ['entryID'] + [c for c in df.columns if c != 'entryID']
-        st.dataframe(df[cols], use_container_width=True, hide_index=True)
+        st.dataframe(df[cols], width="stretch", hide_index=True)
 
         # Column Statistics
         st.markdown("**Column Statistics:**")
@@ -297,7 +297,7 @@ def tab_data_loading(backend_available):
         ordered_cols = ['entryID'] + [c for c in stats_data.keys() if c != 'entryID']
         stats_df = pd.DataFrame(stats_data)[ordered_cols]
 
-        st.dataframe(stats_df, use_container_width=True)
+        st.dataframe(stats_df, width="stretch")
 
     # Column Selection Section
     st.markdown("---")

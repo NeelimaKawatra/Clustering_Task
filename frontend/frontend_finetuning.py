@@ -75,7 +75,7 @@ def tab_finetuning(backend_available: bool):
                 key="ft_ai_model_hint",
             )
 
-        if st.button("Ask AI", use_container_width=True):
+        if st.button("Ask AI", width="stretch"):
             ctx = _build_ai_context_for_wrapper(backend)
             # If wrapper isn't initialized, default to mock so the button works out-of-the-box
             w = get_llm_wrapper()
@@ -329,7 +329,7 @@ def show_drag_drop_board(backend):
 
         # Apply changes
         if pending_moves:
-            if st.button("Apply changes", use_container_width=True):
+            if st.button("Apply changes", width="stretch"):
                 ok  = 0
                 for eid, target_cid in pending_moves:
                     success, _ = backend.moveEntry(eid, target_cid)

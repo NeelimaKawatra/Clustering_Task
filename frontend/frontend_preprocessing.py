@@ -240,7 +240,7 @@ def show_processing_results():
         
         if comparison_data:
             comparison_df = pd.DataFrame(comparison_data)
-            st.dataframe(comparison_df, use_container_width=True, hide_index=True, height=400)
+            st.dataframe(comparison_df, width="stretch", hide_index=True, height=400)
             
             st.caption(f"Showing all {len(comparison_data)} non-empty text comparisons")
         else:
@@ -308,6 +308,6 @@ def show_processing_results():
                     rows.append({"Subject ID": sid, "Original Text": display_text})
 
                 filt_df = pd.DataFrame(rows)
-                st.dataframe(filt_df, use_container_width=True, hide_index=True, height=300)
+                st.dataframe(filt_df, width="stretch", hide_index=True, height=300)
             else:
                 st.caption("No rows were filtered out.")

@@ -41,10 +41,6 @@ def tab_results(backend_available):
     
     # Results overview
     st.subheader("📈 Overview")
-
-    st.markdown("---")
-    st.caption(f"Source: {'Fine-tuning' if st.session_state.get('finetuning_results') else 'Clustering'}")
-    st.markdown("---")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -192,7 +188,7 @@ def tab_results(backend_available):
         filename_suffix = "_detailed"
 
     st.write(f"**Preview of {export_type}-view export data:**")
-    st.dataframe(results_df, use_container_width=True, hide_index=True, height=400)
+    st.dataframe(results_df, width="stretch", hide_index=True, height=400)
 
     with st.expander("Results Columns Information"):
         if export_type == "summary":
@@ -226,7 +222,7 @@ def tab_results(backend_available):
             csv_data,
             f"clustering_results{filename_suffix}.csv",
             "text/csv",
-            use_container_width=True
+            width="stretch"
         ):
             st.session_state.backend.track_activity(st.session_state.session_id, "export", {
                 "export_type": f"csv_{export_type}",
@@ -245,7 +241,7 @@ def tab_results(backend_available):
             summary_report,
             "clustering_summary.txt",
             "text/plain",
-            use_container_width=True
+            width="stretch"
         ):
             st.session_state.backend.track_activity(st.session_state.session_id, "export", {
                 "export_type": "summary_report",
@@ -253,7 +249,7 @@ def tab_results(backend_available):
             })
 
     with col3:
-        if st.button("Start New Analysis", use_container_width=True):
+        if st.button("Start New Analysis", width="stretch"):
             from utils.session_state import reset_analysis
             reset_analysis()
             st.success("Ready for new analysis! Go to Data Loading tab.")
