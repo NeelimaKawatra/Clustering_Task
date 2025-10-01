@@ -20,6 +20,12 @@ except Exception:
     pass
 
 
+# helper function
+def expander_open_once(key: str, default: bool = False) -> bool:
+    """Return True once if session flag is set; then clear it."""
+    return st.session_state.pop(key, default)
+
+
 # =============================================================================
 # MAIN TAB
 # =============================================================================
@@ -51,14 +57,18 @@ def tab_finetuning(backend_available: bool):
 
     backend = get_finetuning_backend()
 
+    # view, rename, delete
+    # create, merge
     show_cluster_management_interface(backend)
-    show_drag_drop_board(backend)
-    st.markdown("---")
 
+    # search, inspect, move a single entry
     show_entry_management_interface(backend)
-    st.markdown("---")
+
+    # drag & drop with filtering
+    show_drag_drop_board(backend)
 
     # ---- Optional AI assist (uses lightweight embedded wrapper) ----
+    st.markdown("---")
     with st.expander("🤖 AI Assist (optional)"):
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -125,65 +135,82 @@ def _initialize_backend() -> bool:
     return False
 
 
-
 def show_cluster_management_interface(backend):
-    #Cluster summary + rename/delete + create + merge.
-
-    # Display any pending success/error messages
+    # Flash messages (shown at top)
     if "finetuning_success_message" in st.session_state:
         st.success(st.session_state.finetuning_success_message)
         del st.session_state.finetuning_success_message
-    
     if "finetuning_error_message" in st.session_state:
         st.error(st.session_state.finetuning_error_message)
         del st.session_state.finetuning_error_message
 
-    # Summary
+    # ---- Summary
     with st.expander("Cluster Summary", expanded=True):
         all_clusters = backend.getAllClusters()
         all_entries = backend.getAllEntries()
         modification_summary = backend.getModificationSummary()
-
         col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Clusters", len(all_clusters))
-        with col2:
-            st.metric("Total Text Entries", len(all_entries))
-        with col3:
-            manual_clusters = modification_summary.get("manual_clusters_created", 0)
-            st.metric("Manual Clusters", manual_clusters)
-        with col4:
-            modification_pct = modification_summary.get("modification_percentage", 0)
-            st.metric("Modified Entries", f"{modification_pct:.1f}%")
-    
-    # Rename / delete per cluster
+        with col1: st.metric("Total Clusters", len(all_clusters))
+        with col2: st.metric("Total Text Entries", len(all_entries))
+        with col3: st.metric("Manual Clusters", modification_summary.get("manual_clusters_created", 0))
+        with col4: st.metric("Modified Entries", f"{modification_summary.get('modification_percentage', 0):.1f}%")
+
+    # ---- Keep/manage expander open state
+    st.session_state.setdefault("exp_manage_open", False)
+
+    # Precompute edit detection
     all_clusters = backend.getAllClusters()
-    with st.expander("💡 You can view, rename, check confidence, and delete clusters:"):
-        for i, (cluster_id, cluster_data) in enumerate(all_clusters.items()):
-            key_prefix = f"{cluster_id}_{i}"
+    editing_any = False
+    tmp_pairs = []
+    for i, (cid, cdata) in enumerate(all_clusters.items()):
+        key_prefix = f"{cid}_{i}"
+        tmp_pairs.append((key_prefix, cdata["cluster_name"], cid, cdata))
+        current_val = st.session_state.get(f"name_{key_prefix}", cdata["cluster_name"])
+        if current_val.strip() != cdata["cluster_name"]:
+            editing_any = True
+
+    parent_expanded = st.session_state["exp_manage_open"] or editing_any
+    with st.expander("💡 You can view, rename, check confidence, and delete clusters:",
+                     expanded=parent_expanded):
+
+        def _keep_manage_open():
+            st.session_state["exp_manage_open"] = True
+
+        for key_prefix, cluster_name, cluster_id, cluster_data in tmp_pairs:
+            # Child expander sticks open while editing this cluster's name
+            current_val = st.session_state.get(f"name_{key_prefix}", cluster_name)
+            child_expanded = (current_val.strip() != cluster_name) or st.session_state.get(
+                f"exp_manage_child_{key_prefix}", False
+            )
+
             with st.expander(
                 f"🗂️ {cluster_data['cluster_name']} ({len(cluster_data['entry_ids'])} entries)",
-                expanded=False,
+                expanded=child_expanded,
             ):
                 col1, col2, col3 = st.columns([2, 1, 1])
 
                 # Rename
                 with col1:
                     new_name = st.text_input(
-                        "Cluster name", value=cluster_data["cluster_name"], key=f"name_{key_prefix}"
+                        "Cluster name",
+                        value=cluster_name,
+                        key=f"name_{key_prefix}",
+                        on_change=_keep_manage_open,  # keep open on Enter/typing
                     )
-                    changed = new_name.strip() != cluster_data["cluster_name"]
-                    clicked = st.button(
-                        "Rename", key=f"update_name_{key_prefix}", disabled=not changed
-                    )
-                    if clicked:
-                        success, message = backend.changeClusterName(cluster_id, new_name.strip())
-                        if success:
-                            st.session_state.finetuning_success_message = f"✏️ {message}"
+                    changed = new_name.strip() != cluster_name
+                    if st.button("Rename", key=f"update_name_{key_prefix}", disabled=not changed):
+                        ok, msg = backend.changeClusterName(cluster_id, new_name.strip())
+                        # after success, collapse parent & child; on failure keep open
+                        if ok:
+                            st.session_state.finetuning_success_message = f"✏️ {msg}"
+                            st.session_state["exp_manage_open"] = False
+                            st.session_state[f"exp_manage_child_{key_prefix}"] = False
                             save_finetuning_results_to_session(backend)
                             st.rerun()
                         else:
-                            st.session_state.finetuning_error_message = message
+                            st.session_state.finetuning_error_message = msg
+                            st.session_state["exp_manage_open"] = True
+                            st.session_state[f"exp_manage_child_{key_prefix}"] = True
                             st.rerun()
 
                 # Stats
@@ -195,172 +222,240 @@ def show_cluster_management_interface(backend):
                 # Delete
                 with col3:
                     if st.button("Delete Cluster", key=f"delete_{key_prefix}"):
-                        success, message = backend.deleteCluster(cluster_id)
-                        if success:
-                            st.session_state.finetuning_success_message = f"🗑️ {message}"
+                        ok, msg = backend.deleteCluster(cluster_id)
+                        if ok:
+                            st.session_state.finetuning_success_message = f"🗑️ {msg}"
+                            st.session_state["exp_manage_open"] = False
+                            st.session_state[f"exp_manage_child_{key_prefix}"] = False
                             save_finetuning_results_to_session(backend)
                             st.rerun()
                         else:
-                            st.session_state.finetuning_error_message = message
+                            st.session_state.finetuning_error_message = msg
+                            st.session_state["exp_manage_open"] = True
+                            st.session_state[f"exp_manage_child_{key_prefix}"] = True
                             st.rerun()
 
-    # Create + Merge
-    with st.expander("💡 You can create new clusters or merge existing clusters:"):
+    # ---- Create + Merge
+    st.session_state.setdefault("exp_create_merge_open", False)
+
+    def _keep_merge_open():
+        st.session_state["exp_create_merge_open"] = True
+
+    with st.expander("💡 You can create new clusters or merge existing clusters:",
+                     expanded=st.session_state["exp_create_merge_open"]):
+
         current_clusters = backend.getAllClusters()
         col1, col2 = st.columns(2)
 
+        # Create
         with col1:
             st.markdown("**Create New Cluster**")
-            new_cluster_name = st.text_input("New cluster name", placeholder="Type here...")
-            if st.button("Create New Cluster") and new_cluster_name.strip():
-                success, result = backend.createNewCluster(new_cluster_name.strip())
-                if success:
-                    st.session_state.finetuning_success_message = f"✅ Created cluster: '{result}'"
-                    save_finetuning_results_to_session(backend)
-                    st.rerun()
-                else:
-                    st.session_state.finetuning_error_message = result
-                    st.rerun()
-
-        with col2:
-            st.markdown("**Merge Clusters**")
-            cluster_ids = list(current_clusters.keys())
-            if len(cluster_ids) >= 2:
-                # Create display options for selectbox
-                cluster_options = []
-                for cid in cluster_ids:
-                    cluster_name = current_clusters[cid]['cluster_name']
-                    entry_count = len(current_clusters[cid]['entry_ids'])
-                    cluster_options.append(f"{cluster_name} ({entry_count} entries)")
-                
-                cluster1_idx = st.selectbox(
-                    "First cluster",
-                    range(len(cluster_options)),
-                    key="merge_cluster1",
-                    format_func=lambda x: cluster_options[x],
-                )
-                cluster2_idx = st.selectbox(
-                    "Second cluster",
-                    range(len(cluster_options)),
-                    key="merge_cluster2",
-                    format_func=lambda x: cluster_options[x],
-                )
-                
-                cluster1 = cluster_ids[cluster1_idx]
-                cluster2 = cluster_ids[cluster2_idx]
-                merge_name = st.text_input("Merged cluster name (optional)", key="merge_name")
-
-                if st.button("Merge Clusters") and cluster1 != cluster2:
-                    success, result = backend.mergeClusters(cluster1, cluster2, merge_name or None)
-                    if success:
-                        st.session_state.finetuning_success_message = f"🔄 Merged into cluster: '{result}'"
+            new_cluster_name = st.text_input(
+                "New cluster name",
+                placeholder="Type here...",
+                key="new_cluster_name",
+                on_change=_keep_merge_open,  # ENTER should not collapse
+            )
+            if st.button("Create New Cluster"):
+                if new_cluster_name.strip():
+                    ok, result = backend.createNewCluster(new_cluster_name.strip())
+                    if ok:
+                        st.session_state.finetuning_success_message = f"✅ Created cluster: '{result}'"
+                        st.session_state["exp_create_merge_open"] = False  # collapse on success
                         save_finetuning_results_to_session(backend)
                         st.rerun()
                     else:
                         st.session_state.finetuning_error_message = result
+                        st.session_state["exp_create_merge_open"] = True
+                        st.rerun()
+
+        # Merge
+        with col2:
+            st.markdown("**Merge Clusters**")
+            cluster_ids = list(current_clusters.keys())
+            if len(cluster_ids) >= 2:
+                options = [f"{current_clusters[c]['cluster_name']} ({len(current_clusters[c]['entry_ids'])} entries)"
+                           for c in cluster_ids]
+
+                idx1 = st.selectbox(
+                    "First cluster",
+                    range(len(options)),
+                    key="merge_cluster1",
+                    format_func=lambda x: options[x],
+                    on_change=_keep_merge_open,
+                )
+                idx2 = st.selectbox(
+                    "Second cluster",
+                    range(len(options)),
+                    key="merge_cluster2",
+                    format_func=lambda x: options[x],
+                    on_change=_keep_merge_open,
+                )
+                merge_name = st.text_input(
+                    "Merged cluster name (optional)",
+                    key="merge_name",
+                    on_change=_keep_merge_open,
+                )
+
+                if st.button("Merge Clusters") and idx1 != idx2:
+                    c1, c2 = cluster_ids[idx1], cluster_ids[idx2]
+                    ok, result = backend.mergeClusters(c1, c2, merge_name or None)
+                    if ok:
+                        st.session_state.finetuning_success_message = f"🔄 Merged into cluster: '{result}'"
+                        st.session_state["exp_create_merge_open"] = False  # collapse on success
+                        save_finetuning_results_to_session(backend)
+                        st.rerun()
+                    else:
+                        st.session_state.finetuning_error_message = result
+                        st.session_state["exp_create_merge_open"] = True
                         st.rerun()
 
 
 def show_drag_drop_board(backend):
     """
     Drag & Drop board for cluster reassignment.
-    """
+    Adds a keyword filter so only matching entries are shown.
+    Sticky while interacting; collapses only after a successful Apply.
 
-    #  fetch fresh clusters
+    Robustness:
+      - If streamlit-sortables is missing or returns None, we show a read-only fallback
+        so the section never looks empty.
+    """
     clusters: Dict[str, dict] = backend.getAllClusters()
     if not clusters:
         st.info("No clusters to display.")
         return
 
-    # Build authoritative mapping and containers
-    # old_cluster_of: entryID -> clusterID
-    old_cluster_of: Dict[str, str] = {}
-    containers: List[dict] = []
-    orig_container_ids: List[str] = []
+    st.session_state.setdefault("exp_drag_open", False)
 
-    for cluster_id, cdata in clusters.items():
-        # Expect cdata to include 'cluster_name' and 'entry_ids'
-        entry_ids: List[str] = []
-        items: List[str] = []
-        for eid in cdata.get("entry_ids", []):
-            entry = backend.getEntry(eid)
-            if not entry:
-                continue
-            text = (entry.get("entry_text") or "").replace("\n", " ").strip()
-            disp = text[:120] + ("…" if len(text) > 120 else "")
-            # Visual label ONLY; logic will extract eid from the left side before ':'
-            items.append(f"{eid}: {disp}")
-            entry_ids.append(eid)
-            old_cluster_of[eid] = cluster_id
-        containers.append({
-            "id": cluster_id,  # target clusterID
-            "header": f"{cdata.get('cluster_name', cluster_id)} ({len(entry_ids)} entries)",
-            "items": items
-        })
-        orig_container_ids.append(cluster_id)
+    def _keep_drag_open():
+        st.session_state["exp_drag_open"] = True
 
-    with st.expander("💡 You can drag entries across clusters. Click **Apply changes** to commit."):
-        # display the DnD board
-        result = sort_items(
-            containers,
-            multi_containers=True,
-            direction="horizontal",
-            #key (must not have any key parameter)
+    with st.expander(
+        "💡 You can drag entries across clusters. Type to filter. Click **Apply changes** to commit.",
+        expanded=st.session_state["exp_drag_open"],
+    ):
+        # --- Filter (case-insensitive, substring on entry_text)
+        filter_text = st.text_input(
+            "Filter entries by keyword (case-insensitive)",
+            placeholder='e.g., "ai"',
+            key="dnd_filter_text",
+            on_change=_keep_drag_open,
         )
 
-        # Helper: robustly extract entryID from 'entryID: text'
+        # --- Build containers from filtered view
+        filtered_map = backend.getEntriesByCluster(filter_text)  # backend stays read-only
+        old_cluster_of: Dict[str, str] = {}
+        containers: List[dict] = []
+        orig_container_ids: List[str] = []
+
+        total_shown = 0
+        for cluster_id, cdata in clusters.items():
+            total_eids = cdata.get("entry_ids", [])
+            shown_eids = filtered_map.get(cluster_id, [])
+
+            items: List[str] = []
+            for eid in shown_eids:
+                entry = backend.getEntry(eid)
+                if not entry:
+                    continue
+                text = (entry.get("entry_text") or "").replace("\n", " ").strip()
+                disp = text[:120] + ("…" if len(text) > 120 else "")
+                items.append(f"{eid}: {disp}")
+                old_cluster_of[eid] = cluster_id
+
+            header = f"{cdata.get('cluster_name', cluster_id)} ({len(shown_eids)} / {len(total_eids)} shown)"
+            containers.append({"header": header, "items": items})
+            orig_container_ids.append(cluster_id)
+            total_shown += len(items)
+
+        # Small hint so users know the filter did something
+        if filter_text:
+            st.caption(f'Filter "{filter_text}" → showing {total_shown} item(s).')
+
+        # --- Render DnD (guarded)
+        result = None
+        # Include filter text in key so component re-renders when filter changes
+        filter_hash = hash(filter_text) if filter_text else 0
+        _sortable_key = f"dnd_board_{st.session_state.get('finetuning_refresh_token', 0)}_{filter_hash}"
+
+        if "sort_items" in globals():
+            try:
+                # Minimal CSS so the board can't collapse to zero height
+                css = ".sortable-component{min-height:240px}.sortable-container{min-width:260px}"
+                result = sort_items(
+                    containers,
+                    multi_containers=True,
+                    direction="horizontal",
+                    custom_style=css,
+                    key=_sortable_key,
+                )
+            except Exception as _e:
+                result = None  # fall through to read-only view
+
+        if result is None:
+            # Read-only fallback so the expander never looks empty
+            st.warning(
+                "Drag-and-drop widget unavailable (install/enable `streamlit-sortables`). "
+                "Showing read-only lists."
+            )
+            for c in containers:
+                st.markdown(f"**{c['header']}**")
+                for it in c["items"]:
+                    st.write(f"- {it}")
+            # No pending changes in fallback
+            if filter_text:
+                st.caption("No pending changes among the filtered items.")
+            else:
+                st.caption("No pending changes.")
+            return
+
+        # --- If the component rendered, compute pending moves (visible items only)
         def _eid_from_item(item: Any) -> Optional[str]:
             if not isinstance(item, str) or ":" not in item:
                 return None
             return item.split(":", 1)[0].strip()
 
-        # Compute moves: (entryID -> new_cluster_id)
+        # `result` mirrors our input shape (list[dict{'header','items'}])
         pending_moves: List[Tuple[str, str]] = []
-        for i, container in enumerate(result):
-            new_cid = container.get("id") or (orig_container_ids[i] if i < len(orig_container_ids) else None)
+        for i, container in enumerate(result or containers):
+            new_cid = orig_container_ids[i] if i < len(orig_container_ids) else None
             if not new_cid:
                 continue
             for item in container.get("items", []):
                 eid = _eid_from_item(item)
-                if not eid:
-                    continue
-                if old_cluster_of.get(eid) != new_cid:
+                if eid and old_cluster_of.get(eid) != new_cid:
                     pending_moves.append((eid, new_cid))
 
-        # Apply changes
         if pending_moves:
-            if st.button("Apply changes", width="stretch"):
-                ok  = 0
+            st.session_state["exp_drag_open"] = True
+            if st.button("Apply changes", use_container_width=True):
+                ok = 0
                 for eid, target_cid in pending_moves:
                     success, _ = backend.moveEntry(eid, target_cid)
                     ok += int(success)
-
                 st.session_state.finetuning_success_message = f"✅ Applied {ok} change(s)."
-                # save the changes
+                st.session_state["exp_drag_open"] = False
                 save_finetuning_results_to_session(backend)
-
-                # Blow away caches/snapshots if you use them anywhere
-                try:
-                    st.cache_data.clear()
-                except Exception:
-                    pass
-                try:
-                    st.cache_resource.clear()
-                except Exception:
-                    pass
-
-                # Nudge any cached helpers
-                st.session_state["finetuning_refresh_token"] = st.session_state.get("finetuning_refresh_token", 0) + 1
-
-                # Hard refresh so all sections re-read backend state
+                try: st.cache_data.clear()
+                except Exception: pass
+                try: st.cache_resource.clear()
+                except Exception: pass
+                st.session_state["finetuning_refresh_token"] = st.session_state.get(
+                    "finetuning_refresh_token", 0
+                ) + 1
                 st.rerun()
         else:
-            st.caption("No pending changes.")
+            st.caption("No pending changes." if not filter_text else "No pending changes among the filtered items.")
+
 
 
 def show_entry_management_interface(backend):
     """Search, inspect, and move a single entry with form controls."""
-    with st.expander("💡 You can search, inspect, and move a single entry with form controls:"):
+    st.session_state.setdefault("exp_entry_open", False)
+
+    with st.expander("💡 You can search, inspect, and move a single entry:",
+                     expanded=st.session_state["exp_entry_open"]):
 
         all_entries = backend.getAllEntries()
         all_clusters = backend.getAllClusters()
@@ -371,11 +466,19 @@ def show_entry_management_interface(backend):
 
         entry_ids = list(all_entries.keys())
 
+        def _keep_entry_open():
+            st.session_state["exp_entry_open"] = True
+
         col1, col2 = st.columns(2)
 
         with col1:
             st.markdown("**Find Entry**")
-            search_text = st.text_input("Search in text entries", placeholder="Type to search...")
+            search_text = st.text_input(
+                "Search in text entries",
+                placeholder="Type to search...",
+                key="entry_search_text",
+                on_change=_keep_entry_open,  # keep open on Enter/typing
+            )
 
             if search_text:
                 matching_entries = [
@@ -386,7 +489,9 @@ def show_entry_management_interface(backend):
                     selected_entry = st.selectbox(
                         "Matching entries",
                         matching_entries,
+                        key="matching_entries_box",
                         format_func=lambda eid: f"{all_entries[eid]['subjectID']}: {all_entries[eid]['entry_text']}",
+                        on_change=_keep_entry_open,
                     )
                 else:
                     st.info("No entries match your search.")
@@ -395,7 +500,9 @@ def show_entry_management_interface(backend):
                 selected_entry = st.selectbox(
                     "Select entry",
                     entry_ids,
+                    key="all_entries_box",
                     format_func=lambda eid: f"{all_entries[eid]['subjectID']}: {all_entries[eid]['entry_text']}",
+                    on_change=_keep_entry_open,
                 )
 
         with col2:
@@ -404,7 +511,6 @@ def show_entry_management_interface(backend):
                 entry_data = backend.getEntry(selected_entry)
                 if entry_data:
                     st.text(f"Subject ID: {entry_data['subjectID']}")
-
                     st.text_area(
                         "Complete Text Entry",
                         value=entry_data["entry_text"],
@@ -432,6 +538,7 @@ def show_entry_management_interface(backend):
                         index=current_index,
                         format_func=lambda x: f"{all_clusters[x]['cluster_name']} ({len(all_clusters[x]['entry_ids'])} entries)",
                         key=f"move_{selected_entry}",
+                        on_change=_keep_entry_open,
                     )
 
                     if target_cluster != current_cluster:
@@ -442,11 +549,14 @@ def show_entry_management_interface(backend):
                             success, message = backend.moveEntry(selected_entry, target_cluster)
                             if success:
                                 st.session_state.finetuning_success_message = f"📦 {message}"
+                                st.session_state["exp_entry_open"] = False  # collapse on success
                                 save_finetuning_results_to_session(backend)
                                 st.rerun()
                             else:
                                 st.session_state.finetuning_error_message = message
+                                st.session_state["exp_entry_open"] = True
                                 st.rerun()
+
 
 
 def _cid_to_int(cid) -> int:

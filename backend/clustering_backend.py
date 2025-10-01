@@ -2,6 +2,7 @@
 import time
 from typing import Dict, Any, List, Tuple
 import numpy as np
+import streamlit as st
 
 from .activity_logger import ActivityLogger
 
@@ -197,6 +198,21 @@ class ClusteringBackend:
                 "success_rate": success_rate,
                 "model_type": meta.get("model_type", "unknown")
             })
+
+            # Persist trained components so other tabs can reuse them
+            try:
+                st.session_state["trained_model_pack"] = {
+                    "vectorizer": self.model.vectorizer,
+                    "reducer": self.model.reducer,
+                    "kmeans": self.model.model,                   # the fitted KMeans
+                    "centroids": getattr(self.model.model, "cluster_centers_", None),
+                    "n_components": getattr(self.model.reducer, "n_components", None),
+                }
+            except Exception:
+                # Non-fatal if session can't store (shouldn't happen in Streamlit)
+                print("Failed to persist trained model components to session state")
+                pass
+            
             return results
 
         except Exception as e:
@@ -222,6 +238,7 @@ class ClusteringBackend:
                 "suggestions": self._get_error_suggestions(error_message, texts, params),
                 "debug_info": {"attempts_made": getattr(self.model, "attempts_made", [])}
             }
+    
     def get_cluster_details(self, results: Dict[str, Any], session_id: str) -> Dict[str, Any]:
         if not results.get("success"):
             return {"error": "No valid clustering results"}
@@ -264,6 +281,7 @@ class ClusteringBackend:
                 "confidences": oprobs
             }
         return details
+    
     def _convert_to_user_friendly_error(self, error_message: str, texts: List[str], params: Dict[str, Any]) -> str:
         """Convert technical error messages to user-friendly explanations."""
         

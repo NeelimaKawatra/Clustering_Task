@@ -35,16 +35,92 @@ def tab_results(backend_available):
     # Prefer Fine-tuning snapshot if available; else use original clustering results
     results = st.session_state.get("finetuning_results") or st.session_state.clustering_results
 
+    # Recompute confidence after fine-tuning 
+    from backend.finetuning_backend import get_finetuning_backend
+    ftb = get_finetuning_backend()
+    backend = st.session_state.backend  # ClusteryBackend instance
+    cb = getattr(backend.clustering, "model", None)  # OptimizedClusteringModel inside
+
+
+    # Get the trained model pack from session state
+    pack = st.session_state.get("trained_model_pack")
+    if pack and cb is not None:
+        # Restore model components if they're missing
+        if getattr(cb, "vectorizer", None) is None:
+            cb.vectorizer = pack.get("vectorizer")
+        if getattr(cb, "reducer", None) is None:
+            cb.reducer = pack.get("reducer")
+        if getattr(cb, "model", None) is None:
+            cb.model = pack.get("kmeans")
+        # Update setup status based on restored components
+        cb.is_setup = bool(cb.vectorizer and cb.reducer and cb.model)
+    
+    # Check if model components are available before showing the button
+    model_available = (cb is not None and 
+                      getattr(cb, "vectorizer", None) is not None and 
+                      getattr(cb, "reducer", None) is not None and 
+                      getattr(cb, "model", None) is not None)
+
+    # Recalculate confidence after fine-tuning
+    if model_available:
+        if st.button("🔁 Recalculate Confidence Scores (if you made changes in fine-tuning)"):
+            summary = ftb.recompute_confidence_with_final_assignments(backend.clustering)
+            if "error" in summary:
+                st.error(summary["error"])
+            else:
+                # Update the finetuning snapshot so the export preview reflects new confidences
+                try:
+                    from frontend.frontend_finetuning import save_finetuning_results_to_session
+                    save_finetuning_results_to_session(ftb)
+                except Exception:
+                    pass
+                st.success(
+                    f"Done. Avg={summary['avg_confidence']:.2f} | "
+                    f"High={summary['high_confidence']} • "
+                    f"Med={summary['medium_confidence']} • "
+                    f"Low={summary['low_confidence']}"
+                )
+                # Hard refresh the page so metrics/preview below update immediately
+                st.rerun()
+    else:
+        st.error("Clustering model/vectorizer/reducer not available. Run clustering first.")
+
     stats = results["statistics"]
+
     # confidence = results["confidence_analysis"]  # COMMENTED OUT: No longer showing confidence scores
     performance = results["performance"]
     
     # Results overview
     st.subheader("📈 Overview")
     
+    # Calculate per-cluster confidence
+    def calculate_per_cluster_confidence(results_data):
+        """Calculate average confidence per cluster from results data."""
+        topics = results_data.get("topics", [])
+        probabilities = results_data.get("probabilities", [])
+        
+        if not topics or not probabilities:
+            return 0.0
+        
+        # Group probabilities by cluster
+        cluster_confidences = {}
+        for topic, prob in zip(topics, probabilities):
+            if topic not in cluster_confidences:
+                cluster_confidences[topic] = []
+            cluster_confidences[topic].append(prob)
+        
+        # Calculate average confidence per cluster
+        if not cluster_confidences:
+            return 0.0
+        
+        avg_confidences = [sum(probs) / len(probs) for probs in cluster_confidences.values()]
+        return sum(avg_confidences) / len(avg_confidences) if avg_confidences else 0.0
+    
+    per_cluster_confidence = calculate_per_cluster_confidence(results)
+    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("🗂️ Total Clusters", stats['n_clusters'])
+        st.metric("🗂️ Total Non-Empty Clusters", stats['n_clusters'])
     with col2:
         st.metric("✅ Clustered Texts", stats['clustered'])
     with col3:
@@ -52,36 +128,7 @@ def tab_results(backend_available):
     with col4:
         st.metric("📈 Success Rate", f"{stats['success_rate']:.1f}%")
     
-    # Performance metrics
-    with st.expander("⚡ Performance Metrics"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Time", f"{performance['total_time']:.2f}s")
-        with col2:
-            st.metric("Setup Time", f"{performance['setup_time']:.2f}s")
-        with col3:
-            st.metric("Clustering Time", f"{performance['clustering_time']:.2f}s")
-    
-    # COMMENTED OUT: Confidence analysis section
-    # st.subheader("🎯 Confidence Analysis")
-    # 
-    # col1, col2, col3 = st.columns(3)
-    # with col1:
-    #     high_pct = (confidence['high_confidence'] / stats['total_texts']) * 100
-    #     st.metric("🟢 High Confidence", f"{confidence['high_confidence']}", f"{high_pct:.1f}%")
-    #     st.caption("Probability ≥ 0.7")
-    # 
-    # with col2:
-    #     med_pct = (confidence['medium_confidence'] / stats['total_texts']) * 100
-    #     st.metric("🟡 Medium Confidence", f"{confidence['medium_confidence']}", f"{med_pct:.1f}%")
-    #     st.caption("Probability 0.3-0.7")
-    # 
-    # with col3:
-    #     low_pct = (confidence['low_confidence'] / stats['total_texts']) * 100
-    #     st.metric("🔴 Low Confidence", f"{confidence['low_confidence']}", f"{low_pct:.1f}%")
-    #     st.caption("Probability < 0.3")
-    
-    # Show modification summary for fine-tuned results
+    """
     if st.session_state.get('finetuning_results'):
         from backend.finetuning_backend import get_finetuning_backend
         backend = get_finetuning_backend()
@@ -103,9 +150,9 @@ def tab_results(backend_available):
             with col3:
                 modification_pct = modification_summary.get("modification_percentage", 0)
                 st.metric("📝 Entries Modified", f"{modification_pct:.1f}%")
-    
+    """
     #######################################################
-    st.subheader("📝 Cluster Details")
+    #st.subheader("📝 Cluster Details")
     #######################################################
 
     cluster_details = st.session_state.backend.get_cluster_details(results, st.session_state.session_id)
@@ -120,13 +167,6 @@ def tab_results(backend_available):
 
             with col1:
                 st.write("**📄 Sample Text Entries:**")
-                # COMMENTED OUT: Confidence score badges
-                # for text, prob in d.get("top_texts", [])[:5]:
-                #     badge = "🟢" if prob >= 0.7 else ("🟡" if prob >= 0.3 else "🔴")
-                #     short = text[:150] + ("..." if len(text) > 150 else "")
-                #     st.write(f"{badge} {short} *(conf: {prob:.2f})*")
-                
-                # NEW: Show texts without confidence scores
                 sample_texts = d.get("top_texts", [])
                 if sample_texts:
                     for i, (text, _) in enumerate(sample_texts[:5], 1):  # Ignore confidence score
@@ -140,16 +180,16 @@ def tab_results(backend_available):
                         st.write(f"**{i}.** {short}")
 
             with col2:
-                # COMMENTED OUT: Confidence metrics
-                # st.metric("Avg Confidence", f"{d.get('avg_confidence', 0.0):.2f}")
+                # Show per-cluster confidence 
+                avg_confidence = d.get('avg_confidence', 0.0)
+                st.metric("Cluster Confidence", f"{avg_confidence:.2f}")
                 # st.metric("High Confidence", d.get("high_confidence_count", 0))
-                st.metric("Cluster Size", size)
                 
                 # Show keywords if available
-                if keywords:
-                    st.write("**Keywords:**")
-                    for keyword in keywords[:3]:
-                        st.write(f"• {keyword}")
+                #if keywords:
+                #    st.write("**Keywords:**")
+                #    for keyword in keywords[:3]:
+                #        st.write(f"• {keyword}")
 
     regular_ids = sorted([cid for cid in cluster_details.keys() if cid != -1])
     for cid in regular_ids:
@@ -172,7 +212,7 @@ def tab_results(backend_available):
         results_df = st.session_state.backend.create_essential_export(
             results,
             st.session_state.df,
-            st.session_state.entry_column,   # ✅ FIXED
+            st.session_state.entry_column,  
             st.session_state.session_id
         )
         export_type = "summary"
@@ -181,7 +221,7 @@ def tab_results(backend_available):
         results_df = st.session_state.backend.create_detailed_export(
             results,
             st.session_state.df,
-            st.session_state.entry_column,   # ✅ FIXED
+            st.session_state.entry_column,   
             st.session_state.session_id
         )
         export_type = "detailed"
@@ -207,27 +247,35 @@ def tab_results(backend_available):
             st.write("• cluster_label: Descriptive cluster name based on keywords")
             
             # COMMENTED OUT: Confidence score descriptions
-            # st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
-            # st.write("• confidence_level: High, Medium, or Low based on confidence score")
+            st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
+            st.write("• confidence_level: High, Medium, or Low based on confidence score")
             
             # Note about confidence scores being temporarily hidden
-            st.info("ℹ️ **Note:** Confidence scores are temporarily hidden as they reflect original clustering and don't account for fine-tuning modifications.")
+            #st.info("ℹ️ **Note:** Confidence scores are temporarily hidden as they reflect original clustering and don't account for fine-tuning modifications.")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         csv_data = results_df.to_csv(index=False)
         if st.download_button(
-            f"Download {export_type.title()} Results CSV",
-            csv_data,
-            f"clustering_results{filename_suffix}.csv",
-            "text/csv",
+            label=f"⬇️ Download {export_type.title()} Results CSV",
+            data=csv_data,
+            file_name=f"clustering_results{filename_suffix}.csv",
+            mime="text/csv",
             width="stretch"
         ):
-            st.session_state.backend.track_activity(st.session_state.session_id, "export", {
-                "export_type": f"csv_{export_type}",
-                "export_info": {"rows": len(results_df), "format": "csv", "view": export_type}
-            })
+            st.session_state.backend.track_activity(
+                st.session_state.session_id,
+                "export",
+                {
+                    "export_type": f"csv_{export_type}",
+                    "export_info": {
+                        "rows": len(results_df),
+                        "format": "csv",
+                        "view": export_type
+                    }
+                }
+            )
 
     with col2:
         summary_report = st.session_state.backend.create_summary_report(
@@ -237,7 +285,7 @@ def tab_results(backend_available):
         )
         
         if st.download_button(
-            "Download Clustery Report",
+            "ℹ️ Download Clustery Report",
             summary_report,
             "clustering_summary.txt",
             "text/plain",
@@ -249,8 +297,20 @@ def tab_results(backend_available):
             })
 
     with col3:
-        if st.button("Start New Analysis", width="stretch"):
+        if st.button("🔄 Start New Analysis", width="stretch"):
             from utils.session_state import reset_analysis
             reset_analysis()
             st.success("Ready for new analysis! Go to Data Loading tab.")
             st.rerun()
+    
+    
+    # Performance metrics
+    st.markdown("---")
+    with st.expander("⚡ Performance Metrics"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Time", f"{performance['total_time']:.2f}s")
+        with col2:
+            st.metric("Setup Time", f"{performance['setup_time']:.2f}s")
+        with col3:
+            st.metric("Clustering Time", f"{performance['clustering_time']:.2f}s")

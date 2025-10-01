@@ -136,6 +136,35 @@ class FineTuningBackend:
             "max_text_length": max(lens) if lens else 0
         }
 
+    def getEntriesByCluster(self, contains: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        Return a mapping: clusterID -> [entryIDs], optionally filtered by substring.
+        Filtering is case-insensitive and operates on 'entry_text'. Does not mutate state.
+        """
+        if not self.initialized:
+            return {}
+
+        needle = (contains or "").strip().lower()
+        result: Dict[str, List[str]] = {}
+
+        if not needle:
+            # Fast path: return original lists (copy to avoid accidental mutation)
+            for cid, c in self.clusters.items():
+                result[cid] = list(c.get("entry_ids", []))
+            return result
+
+        for cid, c in self.clusters.items():
+            filtered = []
+            for eid in c.get("entry_ids", []):
+                ent = self.entries.get(eid)
+                if not ent:
+                    continue
+                txt = (ent.get("entry_text") or "").lower()
+                if needle in txt:
+                    filtered.append(eid)
+            result[cid] = filtered
+        return result
+
     # =========================================================================
     # MANIPULATION FUNCTIONS
     # =========================================================================
@@ -330,6 +359,99 @@ class FineTuningBackend:
         del self.clusters[clusterID]
         
         return True, f"Deleted '{cluster_name}' and moved {len(entries_to_move)} entries to Outliers"
+
+    def recompute_confidence_with_final_assignments(self, clustering_backend) -> dict:
+        """
+        Recompute confidence scores AFTER manual edits, using the SAME metric
+        as initial clustering:
+        - Transform texts with the already-fitted vectorizer + reducer
+        - Compute per-final-cluster centroid in reduced space
+        - Confidence_i = max(0.1, 1 - dist_i / max_dist), Euclidean, normalized globally
+
+        Updates self.entries[entryID]["probability"] in place and returns a summary.
+        """
+        import numpy as np
+
+        if not self.initialized:
+            return {"error": "Fine-tuning backend not initialized"}
+
+        # Reuse fitted components (no refit!)
+        model = getattr(clustering_backend, "model", None)
+        if model is None or model.vectorizer is None or model.reducer is None:
+            return {"error": "Clustering model/vectorizer/reducer not available. Run clustering first."}
+
+        # 1) Collect texts and ids in a stable order
+        entry_ids = list(self.entries.keys())
+        texts = [self.entries[eid]["entry_text"] for eid in entry_ids]
+        cluster_ids = [self.entry_to_cluster.get(eid) for eid in entry_ids]
+
+        # 2) Embed -> reduce (fitted vectorizer/reducer)
+        X = model.vectorizer.transform(texts)           # sparse
+        Xr = model.reducer.transform(X)                 # (n_docs x n_components)
+
+        # 3) Build centroids for final clusters (skip 'outliers')
+        cid_to_indices = {}
+        for i, cid in enumerate(cluster_ids):
+            cid_to_indices.setdefault(cid, []).append(i)
+
+        centroids = {}
+        for cid, idxs in cid_to_indices.items():
+            if cid == "outliers" or len(idxs) == 0:
+                continue
+            centroids[cid] = Xr[idxs].mean(axis=0)     # numpy vector
+
+        # 4) Distances to own-cluster centroid
+        dists = np.zeros(len(entry_ids), dtype=float)
+        for i, cid in enumerate(cluster_ids):
+            if cid in centroids:
+                v = Xr[i]
+                c = centroids[cid]
+                # Euclidean distance in reduced space
+                d = np.linalg.norm(v - c)
+            else:
+                # No centroid (e.g., outliers or empty cluster) => force low confidence
+                d = np.inf
+            dists[i] = d
+
+        # Handle corner cases
+        finite_mask = np.isfinite(dists)
+        if not np.any(finite_mask):
+            # No valid centroids; set all to minimum confidence
+            for eid in entry_ids:
+                self.entries[eid]["probability"] = 0.1
+            return {
+                "avg_confidence": 0.1,
+                "high_confidence": 0,
+                "medium_confidence": 0,
+                "low_confidence": len(entry_ids)
+            }
+
+        # Normalize as before: 1 - d / d_max, clip at 0.1
+        d_max = np.max(dists[finite_mask])
+        if d_max <= 0:
+            d_max = 1.0
+
+        confidences = []
+        for i, d in enumerate(dists):
+            if np.isfinite(d):
+                conf = max(0.1, 1.0 - (d / d_max))
+            else:
+                conf = 0.1
+            self.entries[entry_ids[i]]["probability"] = float(conf)
+            confidences.append(conf)
+
+        # Summary (same level thresholds used in export)
+        high = sum(1 for c in confidences if c >= 0.7)
+        med  = sum(1 for c in confidences if 0.3 <= c < 0.7)
+        low  = sum(1 for c in confidences if c < 0.3)
+        avg  = float(np.mean(confidences)) if confidences else 0.0
+
+        return {
+            "avg_confidence": avg,
+            "high_confidence": high,
+            "medium_confidence": med,
+            "low_confidence": low
+        }
 
     # =========================================================================
     # EXPORT AND REPORTING
