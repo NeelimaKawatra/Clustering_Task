@@ -317,16 +317,18 @@ def show_drag_drop_board(backend):
     Adds keyword + confidence filters so only matching entries are shown.
     Sticky while interacting; collapses only after a successful Apply.
 
-    Robustness:
-      - If streamlit-sortables is missing or returns None, we show a read-only fallback
-        so the section never looks empty.
+    First-open behavior: reset filters to show ALL entries.
     """
     clusters: Dict[str, dict] = backend.getAllClusters()
     if not clusters:
         st.info("No clusters to display.")
         return
 
-    st.session_state.setdefault("exp_drag_open", False)
+    # Initialize expander state - open by default on first visit
+    if not st.session_state.get("dnd_filters_initialized", False):
+        st.session_state["exp_drag_open"] = True
+    else:
+        st.session_state.setdefault("exp_drag_open", False)
 
     def _keep_drag_open():
         st.session_state["exp_drag_open"] = True
@@ -335,6 +337,13 @@ def show_drag_drop_board(backend):
         "💡 You can drag entries across clusters. Type to filter. Click **Apply changes** to commit.",
         expanded=st.session_state["exp_drag_open"],
     ):
+        # ---------- FIRST-OPEN DEFAULTS (show everything) ----------
+        # If we haven't touched this section in this session, force filters to 'All'
+        if not st.session_state.get("dnd_filters_initialized", False):
+            st.session_state["dnd_filter_text"] = ""
+            st.session_state["dnd_conf_level"] = "All"
+            st.session_state["dnd_filters_initialized"] = True
+
         # --- Filters
         colf1, colf2 = st.columns([2, 1])
 
@@ -350,7 +359,6 @@ def show_drag_drop_board(backend):
             conf_choice = st.selectbox(
                 "Confidence Level",
                 ["All", "High (≥ 0.7)", "Medium (0.3–0.7)", "Low (< 0.3)"],
-                index=0,
                 key="dnd_conf_level",
                 on_change=_keep_drag_open,
             )
@@ -362,13 +370,17 @@ def show_drag_drop_board(backend):
             }
             conf_level = conf_map.get(conf_choice)
 
-        # --- Build containers from filtered view (backend stays read-only)
+        # --- Build containers from filtered/unfiltered view
         try:
-            filtered_map = backend.getEntriesByClusterFiltered(filter_text, conf_level)
+            if filter_text or conf_level:
+                filtered_map = backend.getEntriesByClusterFiltered(filter_text, conf_level)
+            else:
+                filtered_map = backend.getEntriesByCluster()
         except AttributeError:
-            # Backward-compat: if project hasn't added the new backend method yet,
-            # fall back to keyword-only filter so UI still works.
-            filtered_map = backend.getEntriesByCluster(filter_text)
+            if filter_text:
+                filtered_map = backend.getEntriesByCluster(filter_text)
+            else:
+                filtered_map = {cid: cdata.get("entry_ids", []) for cid, cdata in clusters.items()}
 
         old_cluster_of: Dict[str, str] = {}
         containers: List[dict] = []
@@ -394,7 +406,6 @@ def show_drag_drop_board(backend):
             orig_container_ids.append(cluster_id)
             total_shown += len(items)
 
-        # Small hint so users know the filter did something
         if filter_text or conf_level:
             if conf_level:
                 st.caption(f'Filter "{filter_text or "*"}" + confidence={conf_level} → showing {total_shown} item(s).')
@@ -403,7 +414,6 @@ def show_drag_drop_board(backend):
 
         # --- Render DnD (guarded)
         result = None
-        # Include filters in key so component re-renders when filters change
         filter_hash = hash((filter_text or "", conf_level or "all"))
         _sortable_key = f"dnd_board_{st.session_state.get('finetuning_refresh_token', 0)}_{filter_hash}"
 
@@ -418,7 +428,7 @@ def show_drag_drop_board(backend):
                     key=_sortable_key,
                 )
             except Exception:
-                result = None  # fall through to read-only view
+                result = None
 
         if result is None:
             st.warning(
@@ -435,9 +445,9 @@ def show_drag_drop_board(backend):
                 st.caption("No pending changes.")
             return
 
-        # --- If the component rendered, compute pending moves (visible items only)
+        # --- Compute pending moves (visible items only)
         def _eid_from_item(item: Any) -> Optional[str]:
-            if not isinstance(item, string_types := str) or ":" not in item:
+            if not isinstance(item, str) or ":" not in item:
                 return None
             return item.split(":", 1)[0].strip()
 
