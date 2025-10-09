@@ -122,24 +122,23 @@ def tab_data_loading(backend_available):
     
     # Detect file change and reset analysis if needed using unified reset system
     file_changed = False
-    if current_file_key != st.session_state.get('previous_file_key') and current_file_key is not None:
-        # New file detected - warn user and reset everything
-        if (st.session_state.get('tab_preprocessing_complete') or 
-            st.session_state.get('clustering_results') or 
-            st.session_state.get('finetuning_initialized')):
+    if current_file_key and current_file_key != st.session_state.get('previous_file_key'):
+        has_work = any([
+            st.session_state.get('tab_data_loading_complete'),
+            st.session_state.get('tab_preprocessing_complete'),
+            st.session_state.get('clustering_results'),
+            st.session_state.get('finetuning_initialized'),
+        ])
+        if has_work:
             st.warning("🔄 New file uploaded! This will reset all your previous work.")
-        
-        # Use unified reset system for file change
-        reset_summary = reset_from_file_change(show_message=True)
-        
+        # Only show the green banner when there was actually something to reset
+        reset_from_file_change(show_message=has_work)
         file_changed = True
-        # clear previous alerts when a new file is uploaded
         st.session_state["data_loading_alerts"] = []
-
     else:
-        # First time loading
         st.session_state.previous_file_key = current_file_key
         file_changed = bool(current_file_key)
+
 
     # Process file upload if provided and changed
     if uploaded_file is not None and file_changed:
@@ -342,13 +341,14 @@ def tab_data_loading(backend_available):
     if selected_id == auto_option:
         selected_id = "entryID"
 
-    # get the previous subject id selection
+     # get the previous subject id selection
     prev = st.session_state.get('subjectID')
     if selected_id != prev:
+        # Persist the new selection before any potential rerun so the UI reflects it
+        st.session_state.subjectID = selected_id
         handle_column_selection_change(selected_id, prev, "ID")
-
-    # save the selected subject id to the session state 
-    st.session_state.subjectID = selected_id
+    else:
+        st.session_state.subjectID = selected_id
 
     # fallback: save entryID (row numbers) as subjectID, if the selected subject id is the prompt option or not set
     if st.session_state.subjectID == prompt_option or not st.session_state.subjectID:
@@ -407,8 +407,12 @@ def tab_data_loading(backend_available):
     )
     
     # Enhanced change detection for entry column using unified reset system
-    if selected_text_column != st.session_state.get('entry_column'):
-        handle_column_selection_change(selected_text_column, st.session_state.get('entry_column'), "entry")
+    previous_entry_column = st.session_state.get('entry_column')
+    if selected_text_column != previous_entry_column:
+        # Persist the new selection before any potential rerun so the UI reflects it
+        st.session_state.entry_column = selected_text_column
+        handle_column_selection_change(selected_text_column, previous_entry_column, "entry")
+    else:
         st.session_state.entry_column = selected_text_column
     
     # Store user selections for output structure
@@ -563,13 +567,19 @@ def tab_data_loading(backend_available):
                 st.success("Data Loading Complete!")
                 st.info("Proceed to the **Preprocessing** tab to clean and prepare your text entries.")
                 
+                # Flag to show celebration message once more after rerun
+                st.session_state["show_data_loading_success"] = True
+
                 # Refresh sidebar immediately to show green button
                 st.rerun()
                 
             else:
                 # Already completed - just show status
                 st.success("Data Loading Complete!")
-                st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
+                if st.session_state.pop("show_data_loading_success", False):
+                    st.info("Proceed to the **Preprocessing** tab to clean and prepare your text entries.")
+                else:
+                    st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
             
             # Show feedback if changes were made during this session
             if st.session_state.get('data_loading_changes_made'):
