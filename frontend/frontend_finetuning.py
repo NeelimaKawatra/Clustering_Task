@@ -314,7 +314,7 @@ def show_cluster_management_interface(backend):
 def show_drag_drop_board(backend):
     """
     Drag & Drop board for cluster reassignment.
-    Adds a keyword filter so only matching entries are shown.
+    Adds keyword + confidence filters so only matching entries are shown.
     Sticky while interacting; collapses only after a successful Apply.
 
     Robustness:
@@ -335,16 +335,41 @@ def show_drag_drop_board(backend):
         "💡 You can drag entries across clusters. Type to filter. Click **Apply changes** to commit.",
         expanded=st.session_state["exp_drag_open"],
     ):
-        # --- Filter (case-insensitive, substring on entry_text)
-        filter_text = st.text_input(
-            "Filter entries by keyword (case-insensitive)",
-            placeholder='e.g., "ai"',
-            key="dnd_filter_text",
-            on_change=_keep_drag_open,
-        )
+        # --- Filters
+        colf1, colf2 = st.columns([2, 1])
 
-        # --- Build containers from filtered view
-        filtered_map = backend.getEntriesByCluster(filter_text)  # backend stays read-only
+        with colf1:
+            filter_text = st.text_input(
+                "Search by keyword (case-insensitive)",
+                placeholder='e.g., "ai"',
+                key="dnd_filter_text",
+                on_change=_keep_drag_open,
+            )
+
+        with colf2:
+            conf_choice = st.selectbox(
+                "Confidence Level",
+                ["All", "High (≥ 0.7)", "Medium (0.3–0.7)", "Low (< 0.3)"],
+                index=0,
+                key="dnd_conf_level",
+                on_change=_keep_drag_open,
+            )
+            conf_map = {
+                "All": None,
+                "High (≥ 0.7)": "high",
+                "Medium (0.3–0.7)": "medium",
+                "Low (< 0.3)": "low",
+            }
+            conf_level = conf_map.get(conf_choice)
+
+        # --- Build containers from filtered view (backend stays read-only)
+        try:
+            filtered_map = backend.getEntriesByClusterFiltered(filter_text, conf_level)
+        except AttributeError:
+            # Backward-compat: if project hasn't added the new backend method yet,
+            # fall back to keyword-only filter so UI still works.
+            filtered_map = backend.getEntriesByCluster(filter_text)
+
         old_cluster_of: Dict[str, str] = {}
         containers: List[dict] = []
         orig_container_ids: List[str] = []
@@ -370,18 +395,20 @@ def show_drag_drop_board(backend):
             total_shown += len(items)
 
         # Small hint so users know the filter did something
-        if filter_text:
-            st.caption(f'Filter "{filter_text}" → showing {total_shown} item(s).')
+        if filter_text or conf_level:
+            if conf_level:
+                st.caption(f'Filter "{filter_text or "*"}" + confidence={conf_level} → showing {total_shown} item(s).')
+            else:
+                st.caption(f'Filter "{filter_text}" → showing {total_shown} item(s).')
 
         # --- Render DnD (guarded)
         result = None
-        # Include filter text in key so component re-renders when filter changes
-        filter_hash = hash(filter_text) if filter_text else 0
+        # Include filters in key so component re-renders when filters change
+        filter_hash = hash((filter_text or "", conf_level or "all"))
         _sortable_key = f"dnd_board_{st.session_state.get('finetuning_refresh_token', 0)}_{filter_hash}"
 
         if "sort_items" in globals():
             try:
-                # Minimal CSS so the board can't collapse to zero height
                 css = ".sortable-component{min-height:240px}.sortable-container{min-width:260px}"
                 result = sort_items(
                     containers,
@@ -390,11 +417,10 @@ def show_drag_drop_board(backend):
                     custom_style=css,
                     key=_sortable_key,
                 )
-            except Exception as _e:
+            except Exception:
                 result = None  # fall through to read-only view
 
         if result is None:
-            # Read-only fallback so the expander never looks empty
             st.warning(
                 "Drag-and-drop widget unavailable (install/enable `streamlit-sortables`). "
                 "Showing read-only lists."
@@ -403,8 +429,7 @@ def show_drag_drop_board(backend):
                 st.markdown(f"**{c['header']}**")
                 for it in c["items"]:
                     st.write(f"- {it}")
-            # No pending changes in fallback
-            if filter_text:
+            if filter_text or conf_level:
                 st.caption("No pending changes among the filtered items.")
             else:
                 st.caption("No pending changes.")
@@ -412,11 +437,10 @@ def show_drag_drop_board(backend):
 
         # --- If the component rendered, compute pending moves (visible items only)
         def _eid_from_item(item: Any) -> Optional[str]:
-            if not isinstance(item, str) or ":" not in item:
+            if not isinstance(item, string_types := str) or ":" not in item:
                 return None
             return item.split(":", 1)[0].strip()
 
-        # `result` mirrors our input shape (list[dict{'header','items'}])
         pending_moves: List[Tuple[str, str]] = []
         for i, container in enumerate(result or containers):
             new_cid = orig_container_ids[i] if i < len(orig_container_ids) else None
@@ -446,8 +470,11 @@ def show_drag_drop_board(backend):
                 ) + 1
                 st.rerun()
         else:
-            st.caption("No pending changes." if not filter_text else "No pending changes among the filtered items.")
-
+            st.caption(
+                "No pending changes."
+                if not (filter_text or conf_level)
+                else "No pending changes among the filtered items."
+            )
 
 
 def show_entry_management_interface(backend):
@@ -556,7 +583,6 @@ def show_entry_management_interface(backend):
                                 st.session_state.finetuning_error_message = message
                                 st.session_state["exp_entry_open"] = True
                                 st.rerun()
-
 
 
 def _cid_to_int(cid) -> int:

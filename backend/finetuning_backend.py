@@ -165,6 +165,58 @@ class FineTuningBackend:
             result[cid] = filtered
         return result
 
+    def getEntriesByClusterFiltered(self, contains: Optional[str] = None,
+                                confidence_level: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        Return clusterID -> [entryIDs], filtered by:
+        - contains: case-insensitive substring match on entry_text (optional)
+        - confidence_level: one of {'low','medium','high'} (optional)
+
+        Thresholds:
+        Low    : prob < 0.3
+        Medium : 0.3 <= prob < 0.7
+        High   : prob >= 0.7
+
+        This is read-only and does not mutate internal state.
+        """
+        if not self.initialized:
+            return {}
+
+        needle = (contains or "").strip().lower()
+        want_level = (confidence_level or "").strip().lower()
+        if want_level not in {"low", "medium", "high", ""}:
+            want_level = ""
+
+        def _level(p: float) -> str:
+            if p is None:
+                return "low"  # be conservative if missing
+            return "high" if p >= 0.7 else ("medium" if p >= 0.3 else "low")
+
+        out: Dict[str, List[str]] = {}
+        for cid, c in self.clusters.items():
+            selected: List[str] = []
+            for eid in c.get("entry_ids", []):
+                ent = self.entries.get(eid)
+                if not ent:
+                    continue
+
+                # keyword filter
+                if needle:
+                    txt = (ent.get("entry_text") or "").lower()
+                    if needle not in txt:
+                        continue
+
+                # confidence filter
+                if want_level:
+                    lvl = _level(ent.get("probability", 0.0))
+                    if lvl != want_level:
+                        continue
+
+                selected.append(eid)
+            out[cid] = selected
+        return out
+
+
     # =========================================================================
     # MANIPULATION FUNCTIONS
     # =========================================================================
