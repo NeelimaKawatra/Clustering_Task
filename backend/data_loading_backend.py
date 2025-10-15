@@ -53,13 +53,24 @@ class DataLoadingBackend:
             self.logger.log_error("file_load_error", session_id, msg)
             return False, pd.DataFrame(), msg
 
-    def _load_file_by_type(self, file_path: str) -> pd.DataFrame:
+    """def _load_file_by_type(self, file_path: str) -> pd.DataFrame:
         ext = os.path.splitext(file_path)[1].lower()
         if ext == ".csv":
             return pd.read_csv(file_path)
         if ext in (".xlsx", ".xls"):
             return pd.read_excel(file_path)
         raise ValueError(f"Unsupported file format: {ext}")
+    """
+
+    def _load_file_by_type(self, file_path: str) -> pd.DataFrame:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".csv":
+            # add automatic delimiter detection with engine="python"
+            return pd.read_csv(file_path, sep=None, engine="python")
+        if ext in (".xlsx", ".xls"):
+            return pd.read_excel(file_path)
+        raise ValueError(f"Unsupported file format: {ext}")
+
 
     def validate_columns(self, df: pd.DataFrame, entry_column: str, id_column: Optional[str], session_id: str) -> Dict[str, Any]:
         """
