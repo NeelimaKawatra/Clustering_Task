@@ -25,6 +25,29 @@ def expander_open_once(key: str, default: bool = False) -> bool:
     """Return True once if session flag is set; then clear it."""
     return st.session_state.pop(key, default)
 
+# --- zero-width ID codec (hide IDs in labels but keep them recoverable) ---
+_ZW0 = "\u200b"   # ZWSP
+_ZW1 = "\u200c"   # ZWNJ
+_ZWS = "\u2060"   # WORD JOINER (delimiter)
+_ZWB = "\u2062"   # INVISIBLE TIMES (start)
+_ZWE = "\u2063"   # INVISIBLE SEPARATOR (end)
+
+def _encode_hidden_id(eid: str) -> str:
+    bits = "".join(f"{ord(c):08b}" for c in eid)            # 8-bit per char
+    payload = "".join(_ZW1 if b == "1" else _ZW0 for b in bits)
+    return f"{_ZWB}{payload}{_ZWE}"                          # invisible token
+
+def _decode_hidden_id(label: str) -> Optional[str]:
+    # Extract the invisible token and turn it back into the original string
+    if _ZWB in label and _ZWE in label:
+        enc = label.split(_ZWB, 1)[1].split(_ZWE, 1)[0]
+        bits = "".join("1" if ch == _ZW1 else ("0" if ch == _ZW0 else "") for ch in enc)
+        if bits and len(bits) % 8 == 0:
+            chars = [chr(int(bits[i:i+8], 2)) for i in range(0, len(bits), 8)]
+            return "".join(chars)
+    return None
+
+
 
 # =============================================================================
 # MAIN TAB
@@ -397,8 +420,12 @@ def show_drag_drop_board(backend):
                 if not entry:
                     continue
                 text = (entry.get("entry_text") or "").replace("\n", " ").strip()
+                #disp = text[:120] + ("…" if len(text) > 120 else "")
+                #items.append(f"{eid}: {disp}")
+                INV_SEP = "\u2063"  # invisible separator (U+2063)
                 disp = text[:120] + ("…" if len(text) > 120 else "")
-                items.append(f"{eid}: {disp}")
+                items.append(f"{disp}{_encode_hidden_id(str(eid))}") 
+
                 old_cluster_of[eid] = cluster_id
 
             header = f"{cdata.get('cluster_name', cluster_id)} ({len(shown_eids)} / {len(total_eids)} shown)"
@@ -446,10 +473,24 @@ def show_drag_drop_board(backend):
             return
 
         # --- Compute pending moves (visible items only)
+        #def _eid_from_item(item: Any) -> Optional[str]:
+        #    if not isinstance(item, str) or ":" not in item:
+        #        return None
+        #    return item.split(":", 1)[0].strip()
+        
         def _eid_from_item(item: Any) -> Optional[str]:
-            if not isinstance(item, str) or ":" not in item:
+            if not isinstance(item, str):
                 return None
-            return item.split(":", 1)[0].strip()
+            # Preferred: decode hidden zero-width token
+            hid = _decode_hidden_id(item)
+            if hid:
+                return hid
+            # Back-compat: old "eid: text" format if any are still in session
+            if ":" in item:
+                return item.split(":", 1)[0].strip()
+            return None
+
+
 
         pending_moves: List[Tuple[str, str]] = []
         for i, container in enumerate(result or containers):
