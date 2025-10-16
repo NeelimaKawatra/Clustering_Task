@@ -155,8 +155,10 @@ def create_sidebar_navigation():
         current_clustering_complete = bool(st.session_state.get('clustering_results') and 
                                          st.session_state.clustering_results.get("success", False))
         
-        # Only update to True, never to False (except on explicit reset)
-        st.session_state.permanent_progress['data_loading'] = current_data_complete
+        # STICKY updates: only set to True, never False (unless explicit reset)
+        st.session_state.permanent_progress['data_loading'] = (
+            st.session_state.permanent_progress.get('data_loading', False) or current_data_complete
+        )
         if current_preprocessing_complete:
             st.session_state.permanent_progress['preprocessing'] = True
         if current_clustering_complete:
@@ -323,14 +325,6 @@ def render_main_content():
         st.error("⚠️ Backend not available! Some features may be limited.")
         st.info("Please ensure backend.py is in your project directory and all dependencies are installed.")
     
-    # Run change detection and auto-completion
-    try:
-        from utils.session_state import detect_changes_and_cascade, check_automatic_completion
-        detect_changes_and_cascade()
-        check_automatic_completion()
-    except Exception as e:
-        st.warning(f"Session state management warning: {e}")
-    
     # Get tab functions
     if 'tab_functions' in st.session_state:
         tab_functions = st.session_state.tab_functions
@@ -404,8 +398,16 @@ def main():
     # Apply custom styles (already initialized)
     if 'apply_custom_styles' in st.session_state:
         st.session_state.apply_custom_styles()
+
+    # >>> Ensure flags are up-to-date BEFORE building the sidebar <<<
+    try:
+        from utils.session_state import detect_changes_and_cascade, check_automatic_completion
+        detect_changes_and_cascade()
+        check_automatic_completion()
+    except Exception as e:
+        st.warning(f"Session state management warning: {e}")
     
-    # Create sidebar navigation
+    # Create sidebar navigation (reads fresh flags now)
     create_sidebar_navigation()
     
     # Render main content
@@ -413,3 +415,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

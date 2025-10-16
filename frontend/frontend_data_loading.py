@@ -1,92 +1,65 @@
-# frontend/frontend_data_loading.py - Complete version with unified reset system
-import streamlit as st
+# frontend/frontend_data_loading.py — stable draft→apply + guarded "Ready to Proceed"
 import os
-import re
-from utils import session_state
-from utils.helpers import get_file_from_upload
-from utils.reset_manager import reset_from_file_change, reset_from_column_change
+import streamlit as st
 import pandas as pd
 from pandas.api.types import is_object_dtype, is_string_dtype
 
-def get_safe_index(options_list, value, default=0):
-    """Safely get index of value in list, return default if not found"""
+from utils.helpers import get_file_from_upload
+from utils.reset_manager import reset_from_file_change, reset_from_column_change
+
+
+# -----------------------------
+# tiny helpers
+# -----------------------------
+def _ensure(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+    return st.session_state[key]
+
+
+def _safe_index(value, options):
     try:
-        if value is not None and value in options_list:
-            return options_list.index(value)
-        else:
-            return default
-    except (ValueError, TypeError):
-        return default
+        return options.index(value) if value in options else 0
+    except ValueError:
+        return 0
 
-def handle_column_selection_change(new_selection, current_selection, selection_type):
-    """Handle column selection changes using unified reset system"""
-    
-    # Define what constitutes a meaningful change
-    prompt_values = {
-        "ID": ["-- Select a subject ID column--", None, "use entryID (row numbers) as subject IDs"],
-        "entry": ["-- Select an entry column --", None]
-    }
-    
-    # Check if this is a meaningful change (simplified logic)
-    is_meaningful_change = (
-        new_selection != current_selection and
-        current_selection not in prompt_values.get(selection_type, []) and
-        new_selection not in prompt_values.get(selection_type, [])
-    )
-    
-    # Also trigger if there's any downstream work that would be affected
-    has_downstream_work = (
-        st.session_state.get('tab_preprocessing_complete') or 
-        st.session_state.get('clustering_results') or
-        st.session_state.get('processed_texts')
-    )
-    
-    if is_meaningful_change and has_downstream_work:
-        # Use unified reset system
-        reset_summary = reset_from_column_change(
-            changed_column=selection_type,
-            show_message=True
-        )
-        
-        # Reset the OTHER column selection
-        if selection_type == "ID":
-            st.session_state.entry_column = "-- Select an entry column --"
-        elif selection_type == "entry":
-            st.session_state.subjectID = "-- Select a subject ID column--"
-        
-        st.success("✅ Reset complete. Please reselect your columns.")
-        
-        # Force immediate UI refresh
-        st.rerun()
 
-def tab_data_loading(backend_available):
-    """Tab: Data Loading with unified reset system"""
-    
-    # Track tab visit
+def _valid_col(name, df):
+    return isinstance(name, str) and (name == "entryID" or name in df.columns)
+
+
+# -----------------------------
+# main tab
+# -----------------------------
+def tab_data_loading(backend_available: bool):
+    """Data Loading tab with explicit Apply for column choices. No mid-edit reruns."""
+
+    # activity (best effort)
     if backend_available:
-        st.session_state.backend.track_activity(st.session_state.session_id, "tab_visit", {"tab_name": "data_loading"})
-    
-    # Introduction section
+        try:
+            st.session_state.backend.track_activity(
+                st.session_state.session_id, "tab_visit", {"tab_name": "data_loading"}
+            )
+        except Exception:
+            pass
+
     st.markdown("""
-    Welcome to Clustery! Start by uploading your data file containing text entries you want to cluster.
-    
-    **Supported formats:** CSV, Excel (.xlsx, .xls)  
-    **Requirements:** Any number of rows with text entries
-    
-    **Note:** An `entryID` column (row numbers) will be automatically added to your data for tracking purposes.
-    """)
-    
-    # --- Handle explicit 'Start New Analysis' first ---
+Welcome to Clustery! Start by uploading your data file with text entries.
+
+**Supported:** CSV, Excel (.xlsx, .xls)  
+**Note:** An `entryID` column (1..N) is auto-added for stable row tracking.
+""")
+
+    # explicit "Start New Analysis"
     if (st.session_state.get("file_uploader_reset")
         and st.session_state.get("file_reset_reason") == "start_new_analysis"):
         st.info("📁 File cleared. Please upload a new file to restart the analysis.")
         st.session_state["file_uploader_reset"] = False
         st.session_state["file_reset_reason"] = None
-        st.session_state["data_loading_alerts"] = []  
+        st.session_state["data_loading_alerts"] = []
 
-    # --- Persistent alerts (survive reruns) ---
-    alerts = st.session_state.get("data_loading_alerts", [])
-    for kind, text in alerts:
+    # persistent alerts
+    for kind, text in st.session_state.get("data_loading_alerts", []):
         if kind == "warning":
             st.warning(text)
         elif kind == "success":
@@ -94,44 +67,39 @@ def tab_data_loading(backend_available):
         else:
             st.info(text)
 
-    # Check if data already exists in session state
-    data_already_loaded = 'df' in st.session_state and st.session_state.df is not None
-    
-    # File upload section
+    # ========= Upload =========
     st.subheader("Upload Your File")
-    upload_key = st.session_state.get('file_uploader_key', 'data_file_uploader')
-    
-    # Show message if file uploader was recently reset
-    if st.session_state.get('file_uploader_reset') and st.session_state.get('file_reset_reason') == "start_new_analysis":
+    upload_key = st.session_state.get("file_uploader_key", "data_file_uploader")
+
+    if st.session_state.get("file_uploader_reset") and st.session_state.get("file_reset_reason") == "start_new_analysis":
         st.info("📁 File cleared. Please upload a new file to restart the analysis.")
         st.session_state.file_uploader_reset = False
         st.session_state.file_reset_reason = None
-    
+
     uploaded_file = st.file_uploader(
         "Choose your data file",
         type=["csv", "xlsx", "xls"],
-        help="Upload your survey data or file containing text entries for clustering",
+        help="Upload your survey/data file with text entries to cluster",
         key=upload_key,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
     )
 
-    # Check if a new file was uploaded (different from previous)
     current_file_key = None
     if uploaded_file is not None:
         current_file_key = f"{uploaded_file.name}_{uploaded_file.size}_{uploaded_file.type}"
-    
-    # Detect file change and reset analysis if needed using unified reset system
+
+    # detect change
     file_changed = False
-    if current_file_key and current_file_key != st.session_state.get('previous_file_key'):
+    if current_file_key and current_file_key != st.session_state.get("previous_file_key"):
         has_work = any([
-            st.session_state.get('tab_data_loading_complete'),
-            st.session_state.get('tab_preprocessing_complete'),
-            st.session_state.get('clustering_results'),
-            st.session_state.get('finetuning_initialized'),
+            st.session_state.get("tab_data_loading_complete"),
+            st.session_state.get("tab_preprocessing_complete"),
+            st.session_state.get("clustering_results"),
+            st.session_state.get("processed_texts"),
+            st.session_state.get("finetuning_initialized"),
         ])
         if has_work:
-            st.warning("🔄 New file uploaded! This will reset all your previous work.")
-        # Only show the green banner when there was actually something to reset
+            st.warning("🔄 New file uploaded! This will reset your previous work.")
         reset_from_file_change(show_message=has_work)
         file_changed = True
         st.session_state["data_loading_alerts"] = []
@@ -139,484 +107,251 @@ def tab_data_loading(backend_available):
         st.session_state.previous_file_key = current_file_key
         file_changed = bool(current_file_key)
 
-
-    # Process file upload if provided and changed
     if uploaded_file is not None and file_changed:
         if not backend_available:
             st.error("Backend services not available. Please check backend installation.")
             return
-
         try:
             temp_file_path = get_file_from_upload(uploaded_file)
-
-            with st.spinner("Loading and validating file..."):
+            with st.spinner("Loading and validating file."):
                 success, df, message = st.session_state.backend.load_data(
                     temp_file_path, st.session_state.session_id
                 )
-
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-
             if not success:
-                st.error(f"{message}")
+                st.error(message)
                 return
 
-            # Ensure entryID is present and clean (1..N, int)
+            # ensure entryID 1..N
             df = df.copy()
             if "entryID" not in df.columns:
                 df.insert(0, "entryID", range(1, len(df) + 1))
             else:
-                # Recreate to guarantee consistent integer IDs starting at 1
                 df["entryID"] = range(1, len(df) + 1)
 
-            # Store dataframe and reset progress flags
             st.session_state.df = df
             st.session_state.previous_file_key = current_file_key
             st.session_state.tab_data_loading_complete = False
             st.session_state.uploaded_filename = uploaded_file.name
 
-            # If you track overall progress, also reset here
             if "permanent_progress" in st.session_state:
                 st.session_state.permanent_progress["data_loading"] = False
                 st.session_state.permanent_progress["preprocessing"] = False
                 st.session_state.permanent_progress["clustering"] = False
 
-            # Build persistent alerts
             alerts = []
             if "truncated to 300" in (message or "").lower():
-                # Make a yellow warning + green success
-                # Extract the truncation phrase if present
                 try:
-                    # message looks like: "File loaded successfully (truncated to 300 rows from X)"
-                    trunc = message.split("File loaded successfully", 1)[1].strip()
-                    trunc = trunc.strip("()")
+                    trunc = message.split("File loaded successfully", 1)[1].strip().strip("()")
                 except Exception:
                     trunc = "File truncated to 300 rows"
-                alerts.append(("warning", f"{trunc.capitalize()}." if not trunc.endswith(".") else trunc))
+                alerts.append(("warning", trunc if trunc.endswith(".") else f"{trunc}."))
                 alerts.append(("success", "File uploaded successfully."))
             else:
                 alerts.append(("success", message or "File uploaded successfully."))
-
             st.session_state["data_loading_alerts"] = alerts
-            # Rerun so sidebar status updates; alerts will re-render on next run
-            st.rerun()
 
+            st.rerun()
         except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
+            st.error(f"Error processing file: {e}")
             with st.expander("Troubleshooting Help"):
                 st.markdown("""
-                **Common issues and solutions:**
-                - **File format:** Ensure your file is a valid CSV or Excel format
-                - **Encoding:** Try saving your CSV with UTF-8 encoding
-                - **File size:** Large files (>10MB) may take longer to process
-                - **Column names:** Avoid special characters in column headers
-                - **Data quality:** Ensure your file isn't corrupted
-
-                **Need help?** Check that your file:
-                1. Opens correctly in Excel or a text editor
-                2. Has clear column headers
-                3. Contains the text entries you want to analyze
-                """)
+- Ensure the file is valid CSV/XLSX.
+- Try UTF-8 encoding for CSV.
+- Very large files can be slow; start with a subset.
+- Avoid exotic characters in headers.
+""")
             return
-    
-    # If no file uploaded and no data exists, return
-    if not data_already_loaded and uploaded_file is None:
+
+    # need data to continue
+    if "df" not in st.session_state or st.session_state.df is None:
         return
-    
-    # From here, we have data loaded - display all configuration sections
+
+    # ========= Data present =========
     df = st.session_state.df
-    
-    # Ensure entryID exists even if df came from an older session
-    if 'entryID' not in df.columns:
+    if "entryID" not in df.columns:
         df = df.copy()
-        df.insert(0, 'entryID', range(1, len(df) + 1))
+        df.insert(0, "entryID", range(1, len(df) + 1))
         st.session_state.df = df
 
-    # Ensure dataframe is valid before proceeding
-    if df is None or df.empty:
-        st.error("No data loaded. Please upload a file first.")
+    if df.empty:
+        st.error("No data loaded. Please upload a non-empty file.")
         return
-    
-    st.markdown("---")
 
-    # File Overview Section
+    st.markdown("---")
     st.subheader("File Overview")
-    
-    # Show file metrics in columns
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-    with metric_col1:
-        file_name = st.session_state.get("uploaded_filename", "Loaded Data")
-        st.metric("File Name", file_name)
-    with metric_col2:
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("File Name", st.session_state.get("uploaded_filename", "Loaded Data"))
+    with m2:
         st.metric("Total Rows", len(df))
-    with metric_col3:
+    with m3:
         st.metric("Total Columns", len(df.columns))
-    with metric_col4:
-        # Count text-like columns excluding entryID
-        text_cols = sum(1 for col in df.columns
-                        if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))
-                    )
-        st.metric("Total Text Columns", text_cols)
-    
-    # Data Overview Section
+    with m4:
+        text_cols = sum(1 for c in df.columns if c != "entryID" and (is_object_dtype(df[c]) or is_string_dtype(df[c])))
+        st.metric("Text-like Columns", text_cols)
+
     with st.expander("Data Preview", expanded=True):
-        st.markdown("**Your Loaded Data (first 300 rows):**")
-        cols = ['entryID'] + [c for c in df.columns if c != 'entryID']
+        cols = ["entryID"] + [c for c in df.columns if c != "entryID"]
         st.dataframe(df[cols], width="stretch", hide_index=True)
 
-        # Column Statistics
-        st.markdown("**Column Statistics:**")
-        
-        # Create statistics with columns as columns and metrics as rows
-        stats_data = {}
-        
-        # Initialize the stats dictionary with each column
+        # quick per-column stats
+        stats_overview = {}
         for col in df.columns:
-            total_rows = len(df)
-            empty_rows = int(df[col].isna().sum())
+            total = len(df)
+            empty = int(df[col].isna().sum())
             if is_object_dtype(df[col]) or is_string_dtype(df[col]):
-                empty_rows += int((df[col] == '').sum())
-            non_empty_rows = int(len(df) - empty_rows)
-            
-            # calculate column type (special handling for entryID column)
-            if col == 'entryID':
-                col_type = '(Auto-generated)'
-            else:
-                is_text_like = is_object_dtype(df[col]) or is_string_dtype(df[col])
-                col_type = 'Text' if is_text_like else 'Non-Text'
+                empty += int((df[col] == "").sum())
+            non_empty = total - empty
+            col_type = "(Auto-generated)" if col == "entryID" else ("Text" if (is_object_dtype(df[col]) or is_string_dtype(df[col])) else "Non-Text")
+            stats_overview[col] = {"Total Rows": total, "Empty Rows": empty, "Non-Empty Rows": non_empty, "Column Type": col_type}
+        ordered = ["entryID"] + [c for c in stats_overview.keys() if c != "entryID"]
+        st.dataframe(pd.DataFrame(stats_overview)[ordered], width="stretch")
 
-            stats_data[col] = {
-                'Total Rows': total_rows,
-                'Empty Rows': empty_rows,
-                'Non-Empty Rows': non_empty_rows,
-                'Column Type': col_type
-            }
-        
-        # display the column stats (entryID first, then the rest)
-        ordered_cols = ['entryID'] + [c for c in stats_data.keys() if c != 'entryID']
-        stats_df = pd.DataFrame(stats_data)[ordered_cols]
-
-        st.dataframe(stats_df, width="stretch")
-
-    # Column Selection Section
+    # ========= Column Selection (draft → apply) =========
     st.markdown("---")
-    st.subheader("Column Selection:")
+    st.subheader("Column Selection")
 
-    # subject id column selection section
-    st.markdown("Step 1: Choose a column for subject identification (Subject IDs)")
-    auto_option = "use entryID (row numbers) as subject IDs"
-    prompt_option = "-- Select a subject ID column--"
+    # buckets
+    config = _ensure("config", {"id_col": None, "entry_col": None})
+    temp   = _ensure("temp",   {"id_col": None, "entry_col": None})
 
-    # Include entryID as a selectable option
-    available_columns = [col for col in df.columns if col != 'entryID']
-    id_options = [prompt_option, auto_option] + available_columns
-    
-    # Ensure we have valid options
-    if not id_options or len(id_options) == 0:
-        st.error("No valid options available for ID selection.")
-        return
-    
-    # get the current subject id selection
-    current_id_selection = st.session_state.get('subjectID', prompt_option) or prompt_option
+    # options from df (not session.available_columns!)
+    columns = [c for c in df.columns]  # include entryID; user may pick it as ID  :contentReference[oaicite:3]{index=3}
 
-    # Display "entryID" as the auto_option label in the UI
-    if current_id_selection == "entryID":
-        current_id_selection = auto_option
-    if current_id_selection not in id_options:
-        current_id_selection = prompt_option
+    # temp defaults (do NOT write to config)
+    if temp["id_col"] is None and columns:
+        temp["id_col"] = "entryID" if "entryID" in columns else columns[0]
+    if temp["entry_col"] is None and columns:
+        candidates = [c for c in columns if c != "entryID" and (is_object_dtype(df[c]) or is_string_dtype(df[c]))]
+        temp["entry_col"] = candidates[0] if candidates else (columns[0] if columns else None)
 
-    # get the index of the current subject id selection
-    id_column_index = get_safe_index(id_options, current_id_selection, 0)
+    st.caption("Choose your columns, then click **Apply** to commit.")
 
-    # selectbox for the subject id column
-    selected_id = st.selectbox(
-        label="SubjectID Column:",
-        label_visibility="collapsed",
-        options=id_options,
-        index=id_column_index,
-        help="Select a column to track individual responses"
+    # draft widgets
+    temp["id_col"] = st.selectbox(
+        "SubjectID column",
+        options=columns,
+        index=_safe_index(temp["id_col"], columns),
+        key="temp_id_col_select",
+        help="Identifier used to group responses (use `entryID` for per-row IDs).",
+    )
+    temp["entry_col"] = st.selectbox(
+        "Text entry column",
+        options=columns,
+        index=_safe_index(temp["entry_col"], columns),
+        key="temp_entry_col_select",
+        help="Column containing the text to cluster.",
     )
 
-    # Map any auto label to the real column
-    if selected_id == auto_option:
-        selected_id = "entryID"
+    # actions
+    a, _ = st.columns([1, 6])
+    apply_clicked = a.button("✅ Apply Changes")
 
-     # get the previous subject id selection
-    prev = st.session_state.get('subjectID')
-    if selected_id != prev:
-        # Persist the new selection before any potential rerun so the UI reflects it
-        st.session_state.subjectID = selected_id
-        handle_column_selection_change(selected_id, prev, "ID")
-    else:
-        st.session_state.subjectID = selected_id
-
-    # fallback: save entryID (row numbers) as subjectID, if the selected subject id is the prompt option or not set
-    if st.session_state.subjectID == prompt_option or not st.session_state.subjectID:
-        st.session_state.subjectID = "entryID"
-
-    # Show sample subject IDs (always resolved)
-    sid = st.session_state.subjectID
-    if sid:
-        try:
-            sample_ids = df[sid].head(10).tolist()
-            if sample_ids:
-                formatted = ", ".join([f'"{str(x)}"' for x in sample_ids])
-                st.caption(f"**Sample subject IDs: {{{formatted}}}**")
-        except (KeyError, AttributeError):
-            st.caption("Selected ID column not accessible")
-
-    # entry column selection section
-    st.markdown("Step 2: Choose a column for text entry clustering")
-    prompt_option_text = "-- Select an entry column --"
-    
-    # Get entry column suggestions first to filter options
-    text_columns = []
-    if backend_available:
-        try:
-            text_columns = st.session_state.backend.get_text_column_suggestions(df, st.session_state.session_id)
-            # minimal sanity filter: must exist in df and not be entryID
-            text_columns = [c for c in text_columns if c in df.columns and c != 'entryID']
-        except AttributeError:
-            # Simple fallback - check for text-like columns, excluding entryID
-            text_columns = [col for col in df.columns
-                            if col != 'entryID' and (is_object_dtype(df[col]) or is_string_dtype(df[col]))]
-    
-    # Create filtered options - only show text columns plus prompt
-    text_options = [prompt_option_text] + text_columns
-    
-    # Preserve existing entry column selection
-    current_text_selection = st.session_state.get('entry_column', prompt_option_text)
-    
-    # Only reset if no previous selection or selection is invalid
-    if current_text_selection is None:
-        current_text_selection = prompt_option_text
-    
-    # Ensure the current selection is valid for current data
-    if current_text_selection not in text_options:
-        current_text_selection = prompt_option_text
-    
-    text_column_index = get_safe_index(text_options, current_text_selection, 0)
-    
-    selected_text_column = st.selectbox(
-        label="Entry Column:",
-        label_visibility="collapsed",
-        options=text_options,
-        index=text_column_index,
-        help="Select the column with text entries you want to cluster",
-        key="text_selector"
-    )
-    
-    # Enhanced change detection for entry column using unified reset system
-    previous_entry_column = st.session_state.get('entry_column')
-    if selected_text_column != previous_entry_column:
-        # Persist the new selection before any potential rerun so the UI reflects it
-        st.session_state.entry_column = selected_text_column
-        handle_column_selection_change(selected_text_column, previous_entry_column, "entry")
-    else:
-        st.session_state.entry_column = selected_text_column
-    
-    # Store user selections for output structure
-    if 'user_selections' not in st.session_state:
-        st.session_state.user_selections = {}
-
-    # Only update user selections if valid columns are selected
-    if selected_text_column != prompt_option_text and st.session_state.subjectID:
-        st.session_state.user_selections.update({
-            'id_column_choice': st.session_state.subjectID,
-            'entry_column_choice': selected_text_column,
-            'original_columns': [st.session_state.subjectID, selected_text_column]
-                if st.session_state.subjectID != 'entryID' else [selected_text_column]
-        })
-
-    # Show feedback about entry column detection
-    if selected_text_column and selected_text_column != prompt_option_text:
-        if text_columns:
-            # telling how many entry columns were detected
-            pass
+    if apply_clicked:
+        if temp["id_col"] == temp["entry_col"]:
+            st.error("SubjectID and Text entry must be different columns.")
         else:
-            st.warning("No obvious entry columns detected. Please verify your selection.")
-    
-    # Show 10 sample text entries with improved formatting and safety
-    if selected_text_column and selected_text_column != prompt_option_text:
-        try:
-            sample_texts = df[selected_text_column].dropna().head(10).tolist()
-            if sample_texts:
-                formatted_samples = ", ".join([f'"{str(text)[:100] + "..." if len(str(text)) > 100 else str(text)}"' for text in sample_texts])
-                st.caption(f"**Sample text entries: {{{formatted_samples}}}**")
-        except (KeyError, AttributeError):
-            st.caption("Selected entry column not accessible")
+            # commit draft → config
+            config["id_col"] = temp["id_col"]
+            config["entry_col"] = temp["entry_col"]
 
-    # Validation and Quality Analysis
-    if (selected_text_column and selected_text_column != prompt_option_text and 
-        selected_text_column in df.columns):
-        
-        with st.spinner("Analyzing data quality..."):
-            validation_result = st.session_state.backend.validate_columns(
-                df, 
-                selected_text_column, 
-                st.session_state.subjectID,
-                st.session_state.session_id
-            )
-        
-        # Use original backend validation keys
-        if validation_result["text_column_valid"]:
-            st.success(f"{validation_result['text_column_message']}")
-            stats = validation_result["text_quality"]
+            # mirror to legacy fields expected elsewhere
+            st.session_state.subjectID = config["id_col"]
+            st.session_state.entry_column = config["entry_col"]
 
-            # force numeric types (backend may return strings)
-            _total = int(stats.get('total_texts', 0))
-            _empty = int(stats.get('empty_texts', 0))
-            _avg_len = float(stats.get('avg_length', 0))
-            _avg_words = float(stats.get('avg_words', 0))
-            _unique = int(stats.get('unique_texts', 0))
-            
-            st.markdown("**Text Entry Quality Metrics**")
-            quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
-            
-            with quality_col1:
-                text_entries = len(df[selected_text_column].dropna())
-                st.metric(
-                    "Total Text Entries", 
-                    text_entries
+            # one unified downstream reset
+            try:
+                reset_from_column_change(changed_column="both", show_message=True)
+            except Exception:
+                pass
+
+            st.success(f"Applied: ID = `{config['id_col']}`, Entry = `{config['entry_col']}`")
+            st.rerun()
+
+
+    applied = (
+        f"SubjectID = `{config['id_col']}` | TextEntry = `{config['entry_col']}`"
+        if config["id_col"] and config["entry_col"]
+        else "not set"
+    )
+    st.caption(f"**Currently Selected Columns:** {applied}")
+
+    # ========= Validation (read committed only) =========
+    if config["id_col"] and config["entry_col"]:
+        with st.spinner("Analyzing data quality."):
+            try:
+                validation = st.session_state.backend.validate_columns(
+                    df, config["entry_col"], config["id_col"], st.session_state.session_id
                 )
-            with quality_col2:
-                st.metric(
-                    "Unique Text Entries",
-                    _unique
-                )
-            with quality_col3:
-                st.metric(
-                    "Avg Text Length", 
-                    f"{_avg_len:.0f} chars"
-                )
-            with quality_col4:
-                st.metric(
-                    "Avg Text Words", 
-                    f"{_avg_words:.1f}"
-                )
-            
-            # Sample text entries in a nice format
-            with st.expander("Sample Text Entries Analysis", expanded=False):
-                st.markdown("**Representative samples from your text entries:**")
-                sample_texts = df[selected_text_column].dropna().head(5)
-                
-                for i, text in enumerate(sample_texts, 1):
-                    text_str = str(text)
-                    word_count = len(text_str.split())
-                    char_count = len(text_str)
-                    
-                    with st.container():
-                        col_text, col_stats = st.columns([4, 1])
-                        
-                        with col_text:
-                            st.markdown(f"**Sample {i}:**")
-                            display_text = text_str[:300] + "..." if len(text_str) > 300 else text_str
-                            st.markdown(f"*{display_text}*")
-                        
-                        with col_stats:
-                            st.caption(f"Words: {word_count}")
-                            st.caption(f"Chars: {char_count}")
-                        
-                        st.markdown("---")
-            
-            # Ready to proceed section
+            except Exception as e:
+                st.error(f"Validation error: {e}")
+                return
+
+        if validation.get("text_column_valid", False):
+            st.success(validation.get("text_column_message", "Text column looks good."))
+            stats = validation.get("text_quality", {}) or {}
+
+            # metrics
+            total = int(stats.get("total_texts", 0))
+            empty = int(stats.get("empty_texts", 0))
+            avg_len = float(stats.get("avg_length", 0))
+            avg_words = float(stats.get("avg_words", 0))
+            unique = int(stats.get("unique_texts", 0))
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Texts", total)
+            c2.metric("Empty", empty)
+            c3.metric("Avg. Length", f"{avg_len:.1f}")
+            c4.metric("Avg. Words", f"{avg_words:.1f}")
+            c5.metric("Unique", unique)
+
+            # mark complete
+            st.session_state.tab_data_loading_complete = True
+            if "permanent_progress" in st.session_state:
+                st.session_state.permanent_progress["data_loading"] = True
+
+            # ========= Ready to proceed (guarded) =========
             st.markdown("---")
             st.subheader("Ready to Proceed with:")
-            
-            # Summary display (showing only the subject id column and entry column basic info)
+
             summary_col1, summary_col2 = st.columns(2)
-            
             with summary_col1:
                 st.markdown("SubjectID Column:")
-                sid = st.session_state.subjectID
-                if sid:
-                    if sid == 'entryID':
+                sid = st.session_state.get("subjectID")
+                if _valid_col(sid, df):
+                    if sid == "entryID":
                         st.write("• column name: *entryID*")
                         st.write("• column type: (auto-generated) row numbers")
                     else:
                         st.write(f"• column name: *{sid}*")
                         col_type = 'Numeric' if pd.api.types.is_numeric_dtype(df[sid]) else 'Non-Numeric'
                         st.write(f"• column type: {col_type}")
-            
+                else:
+                    st.write("• column name: _not set_")
+
             with summary_col2:
                 st.markdown("Entry Column:")
-                st.write(f"• column name: *{selected_text_column}*")
-                col_type = 'Text' if pd.api.types.is_object_dtype(df[selected_text_column]) or pd.api.types.is_string_dtype(df[selected_text_column]) else 'Non-Text'
-                st.write(f"• column type: {col_type}")
-            
-            # Auto-completion with celebration message
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Check if step should auto-complete
-            if not st.session_state.get('tab_data_loading_complete', False):
-                # Auto-complete when validation passes
-                st.session_state.tab_data_loading_complete = True
+                entry_col = st.session_state.get("entry_column")
+                if _valid_col(entry_col, df):
+                    st.write(f"• column name: *{entry_col}*")
+                    col_type = 'Text' if (pd.api.types.is_object_dtype(df[entry_col]) or pd.api.types.is_string_dtype(df[entry_col])) else 'Non-Text'
+                    st.write(f"• column type: {col_type}")
+                else:
+                    st.write("• column name: _not set_")
 
-                # Track completion
-                if backend_available:
-                    st.session_state.backend.track_activity(st.session_state.session_id, "data_upload", {
-                        "filename": "loaded_data",
-                        "rows": len(df),
-                        "columns": len(df.columns),
-                        "entry_column": selected_text_column,
-                        "id_column": st.session_state.subjectID,
-                        "text_quality": stats
-                    })
-                
-                # Show completion message
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # friendly nudge
+            if st.session_state.pop("show_data_loading_success", True):
                 st.success("Data Loading Complete!")
                 st.info("Proceed to the **Preprocessing** tab to clean and prepare your text entries.")
-                
-                # Flag to show celebration message once more after rerun
-                st.session_state["show_data_loading_success"] = True
-
-                # Refresh sidebar immediately to show green button
-                st.rerun()
-                
             else:
-                # Already completed - just show status
                 st.success("Data Loading Complete!")
-                if st.session_state.pop("show_data_loading_success", False):
-                    st.info("Proceed to the **Preprocessing** tab to clean and prepare your text entries.")
-                else:
-                    st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
-            
-            # Show feedback if changes were made during this session
-            if st.session_state.get('data_loading_changes_made'):
-                st.info("💡 **Tip:** Your changes have been saved and downstream processing has been reset. Navigate to the next tab to continue.")
-                # Clear the flag
-                del st.session_state['data_loading_changes_made']
-            
-            # Additional tips
-            st.markdown("---")
-            with st.expander("Tips for Better Results", expanded=False):
-                st.markdown("""
-                **For optimal clustering results:**
-                
-                - Text entry length: Text entries with 20+ words work best  
-                - Data quality: Remove or fix obviously corrupted text entries  
-                - Language: Ensure all text entries are in the same language  
-                - Relevance: All text entries should be about similar topics  
-                - Volume: 50+ text entries recommended for meaningful clusters  
-                
-                **What happens next:**
-                1. **Preprocessing:** Clean and prepare your text entries  
-                2. **Clustering:** Run advanced algorithms to find patterns
-                3. **Results:** Explore and export your findings
-                """)
-        
+                st.info("Your data configuration is saved. You can proceed to **Preprocessing** or modify settings above to trigger automatic reset.")
+
         else:
-            # Use original backend error key
-            st.error(f"{validation_result['text_column_message']}")
-            # Provide helpful suggestions
-            st.markdown("**Suggestions to fix this issue:**")
-            st.markdown("""
-            - Choose a different column that contains longer text entries  
-            - Ensure the column has meaningful sentences, not just single words
-            - Check that the column isn't mostly empty or contains mostly numbers/codes
-            - Look for columns with survey responses, comments, or descriptions
-            """)
-            
-            # If it was previously complete, mark incomplete and stop here
-            if st.session_state.get('tab_data_loading_complete', False):
-                st.session_state.tab_data_loading_complete = False
+            st.error(validation.get("text_column_message", "Selected text column is not valid."))
+            st.session_state.tab_data_loading_complete = False

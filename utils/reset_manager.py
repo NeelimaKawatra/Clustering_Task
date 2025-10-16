@@ -23,6 +23,15 @@ class ResetManager:
             'ui_state': ['file_uploader_key', 'file_uploader_reset', 'file_reset_reason', 'data_loading_alerts']
         }
     
+    def _clear_column_choices(self):
+        # Remove committed fields and the new draft→apply buckets
+        for k in ["subjectID", "entry_column", "config", "temp"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        # Mark this tab incomplete
+        st.session_state["tab_data_loading_complete"] = False
+
+    
     def unified_reset(self, 
                      reset_type: str = "full",
                      preserve_columns: bool = False,
@@ -169,10 +178,10 @@ class ResetManager:
                         'entry_column_choice': None,
                         'original_columns': []
                     }
-                elif key == 'entry_column':
-                    st.session_state[key] = "-- Select an entry column --"
-                elif key == 'subjectID':
-                    st.session_state[key] = "-- Select a subject ID column--"
+                #elif key == 'entry_column':
+                #    st.session_state[key] = "-- Select an entry column --"
+                #elif key == 'subjectID':
+                #    st.session_state[key] = "-- Select a subject ID column--"
                 elif key == 'current_page':
                     st.session_state[key] = "data_loading"
                 elif key in ['data_loading_alerts']:
@@ -228,6 +237,11 @@ class ResetManager:
             st.cache_resource.clear()
         except Exception:
             pass
+
+        # Clear column choices + draft/commit buckets on key reset types
+        if reset_type in ['full', 'file_change']:
+            self._clear_column_choices()
+
     
     def _update_permanent_progress(self, reset_type: str, reset_summary: Dict[str, Any]):
         """Update permanent progress tracking"""
@@ -256,6 +270,7 @@ class ResetManager:
         elif 'clustering' in reset_summary['steps_affected']:
             st.session_state.permanent_progress['clustering'] = False
     
+
     def _log_reset(self, reset_summary: Dict[str, Any], trigger_reason: str):
         """Log the reset for analytics"""
         
@@ -274,6 +289,7 @@ class ResetManager:
                 )
             except Exception:
                 pass  # Don't fail on logging errors
+    
     
     def _show_reset_message(self, reset_summary: Dict[str, Any], trigger_reason: str):
         """Show appropriate user feedback"""
