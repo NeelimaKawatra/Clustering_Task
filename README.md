@@ -28,6 +28,20 @@ streamlit run main.py
 ### 4. Open in Browser
 Navigate to `http://localhost:8501` and start clustering!
 
+### 5. Optional: Set Up AI Assistant
+For AI-powered clustering assistance, set up your LLM API keys:
+
+```bash
+# Set environment variables (Windows PowerShell)
+$env:OPENAI_API_KEY="your_openai_api_key_here"
+$env:ANTHROPIC_API_KEY="your_anthropic_api_key_here"
+
+# Or test your setup
+python test_llm_setup.py
+```
+
+See [LLM_SETUP_GUIDE.md](LLM_SETUP_GUIDE.md) for detailed instructions.
+
 ## 📁 Project Structure
 
 ```

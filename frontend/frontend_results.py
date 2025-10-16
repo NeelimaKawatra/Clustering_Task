@@ -34,57 +34,6 @@ def tab_results(backend_available):
 
     # Prefer Fine-tuning snapshot if available; else use original clustering results
     results = st.session_state.get("finetuning_results") or st.session_state.clustering_results
-
-    # Recompute confidence after fine-tuning 
-    from backend.finetuning_backend import get_finetuning_backend
-    ftb = get_finetuning_backend()
-    backend = st.session_state.backend  # ClusteryBackend instance
-    cb = getattr(backend.clustering, "model", None)  # OptimizedClusteringModel inside
-
-
-    # Get the trained model pack from session state
-    pack = st.session_state.get("trained_model_pack")
-    if pack and cb is not None:
-        # Restore model components if they're missing
-        if getattr(cb, "vectorizer", None) is None:
-            cb.vectorizer = pack.get("vectorizer")
-        if getattr(cb, "reducer", None) is None:
-            cb.reducer = pack.get("reducer")
-        if getattr(cb, "model", None) is None:
-            cb.model = pack.get("kmeans")
-        # Update setup status based on restored components
-        cb.is_setup = bool(cb.vectorizer and cb.reducer and cb.model)
-    
-    # Check if model components are available before showing the button
-    model_available = (cb is not None and 
-                      getattr(cb, "vectorizer", None) is not None and 
-                      getattr(cb, "reducer", None) is not None and 
-                      getattr(cb, "model", None) is not None)
-
-    # Recalculate confidence after fine-tuning
-    if model_available:
-        if st.button("🔁 Recalculate Confidence Scores (if you made changes in fine-tuning)"):
-            summary = ftb.recompute_confidence_with_final_assignments(backend.clustering)
-            if "error" in summary:
-                st.error(summary["error"])
-            else:
-                # Update the finetuning snapshot so the export preview reflects new confidences
-                try:
-                    from frontend.frontend_finetuning import save_finetuning_results_to_session
-                    save_finetuning_results_to_session(ftb)
-                except Exception:
-                    pass
-                st.success(
-                    f"Done. Avg={summary['avg_confidence']:.2f} | "
-                    f"High={summary['high_confidence']} • "
-                    f"Med={summary['medium_confidence']} • "
-                    f"Low={summary['low_confidence']}"
-                )
-                # Hard refresh the page so metrics/preview below update immediately
-                st.rerun()
-    else:
-        st.error("Clustering model/vectorizer/reducer not available. Run clustering first.")
-
     stats = results["statistics"]
 
     # confidence = results["confidence_analysis"]  # COMMENTED OUT: No longer showing confidence scores

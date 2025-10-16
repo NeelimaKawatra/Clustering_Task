@@ -90,34 +90,8 @@ def tab_finetuning(backend_available: bool):
     # drag & drop with filtering
     show_drag_drop_board(backend)
 
-    # ---- Optional AI assist (uses lightweight embedded wrapper) ----
-    st.markdown("---")
-    with st.expander("🤖 AI Assist (optional)"):
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            prompt = st.text_area(
-                "Ask AI for help (e.g., “Suggest a clearer name for cluster_2 based on its texts”).",
-                height=120,
-                key="ft_ai_prompt",
-            )
-        with col2:
-            temperature = st.slider("Creativity", 0.0, 1.0, 0.7, 0.05, key="ft_ai_temp")
-            model_hint = st.text_input(
-                "Model hint (optional)",
-                placeholder="gpt-4o-mini / claude-3-sonnet",
-                key="ft_ai_model_hint",
-            )
-
-        if st.button("Ask AI", width="stretch"):
-            ctx = _build_ai_context_for_wrapper(backend)
-            # If wrapper isn't initialized, default to mock so the button works out-of-the-box
-            w = get_llm_wrapper()
-            if not w.initialized:
-                initLLM(provider="mock", config={"model": "mock"})
-            answer = callLLM(prompt, context=ctx, temperature=temperature, max_tokens=500)
-            if answer:
-                st.markdown("**AI Suggestion:**")
-                st.write(answer)
+    # AI assist with structured operations
+    show_ai_assist_interface(backend)
 
 
 # =============================================================================
@@ -637,6 +611,187 @@ def show_entry_management_interface(backend):
                                 st.rerun()
 
 
+def show_ai_assist_interface(backend):
+    """AI assist with structured operations for clustering optimization."""
+    st.markdown("---")
+    with st.expander("🤖 AI Assist (optional)"):
+        # LLM Provider Selection (prominent)
+        st.markdown("**🔧 LLM Configuration**")
+        col_provider, col_model, col_temp = st.columns([2, 2, 1])
+        
+        with col_provider:
+            provider = st.selectbox(
+                "LLM Provider",
+                ["mock", "openai", "anthropic", "local"],
+                index=0,
+                key="ft_ai_provider",
+                help="Select your LLM provider. Set API keys in environment variables."
+            )
+        
+        with col_model:
+            if provider == "openai":
+                model = st.selectbox(
+                    "OpenAI Model",
+                    ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
+                    key="ft_ai_model"
+                )
+            elif provider == "anthropic":
+                model = st.selectbox(
+                    "Anthropic Model", 
+                    ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-sonnet-20240229"],
+                    key="ft_ai_model"
+                )
+            else:
+                model = st.text_input("Model", value="mock", key="ft_ai_model", disabled=True)
+        
+        with col_temp:
+            temperature = st.slider("Creativity", 0.0, 1.0, 0.7, 0.05, key="ft_ai_temp")
+        
+        # Initialize LLM with selected provider
+        if provider != "mock":
+            config = {"model": model}
+            if provider == "openai":
+                config["api_key"] = os.getenv("OPENAI_API_KEY")
+            elif provider == "anthropic":
+                config["api_key"] = os.getenv("ANTHROPIC_API_KEY")
+            
+            if not config.get("api_key"):
+                st.error(f"❌ {provider.upper()} API key not found. Set {provider.upper()}_API_KEY environment variable.")
+                st.stop()
+        
+        # Operation Selection
+        st.markdown("**🤖 AI Operation**")
+        operation = st.selectbox(
+            "Choose what you want AI to help with:",
+            ["Suggest Cluster Names", "Suggest Entry Moves", "Suggest Merges/Splits", "Free-form Query"],
+            key="ft_ai_operation"
+        )
+
+        # Initialize LLM wrapper with backend
+        llm_wrapper = LLMWrapper(backend)
+        
+        # Initialize with selected provider and model
+        if provider != "mock":
+            success = llm_wrapper.initLLM(provider=provider, config=config)
+            if not success:
+                st.error(f"Failed to initialize {provider.upper()} LLM. Check your API key and model selection.")
+                st.stop()
+        else:
+            llm_wrapper.initLLM(provider="mock", config={"model": "mock"})
+        
+        # Show LLM Status
+        if llm_wrapper.initialized:
+            if provider == "mock":
+                st.info("🤖 Using Mock LLM (no API calls)")
+            else:
+                st.success(f"✅ Connected to {provider.upper()} ({model})")
+
+        # Operation-specific UI
+        if operation == "Suggest Cluster Names":
+            st.markdown("**Suggest better names for all clusters based on their content**")
+            if st.button("Generate Name Suggestions", key="ft_ai_names_btn"):
+                with st.spinner("Analyzing clusters..."):
+                    suggestions = llm_wrapper.suggest_cluster_names()
+                    if suggestions:
+                        st.session_state.ft_ai_suggestions = suggestions
+                        st.session_state.ft_ai_operation_type = "names"
+                    else:
+                        st.error("Failed to generate name suggestions.")
+            
+            # Show suggestions if available
+            if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "names":
+                applied = llm_wrapper.show_suggestions(st.session_state.ft_ai_suggestions, "names")
+                if applied > 0:
+                    st.success(f"Applied {applied} name changes!")
+                    save_finetuning_results_to_session(backend)
+                    st.rerun()
+
+        elif operation == "Suggest Entry Moves":
+            st.markdown("**Suggest moving entries to better-fitting clusters**")
+            
+            # Filter options for entries to analyze
+            col1, col2 = st.columns(2)
+            with col1:
+                filter_cluster = st.selectbox(
+                    "Analyze entries from cluster",
+                    ["All clusters"] + list(backend.getAllClusters().keys()),
+                    key="ft_ai_move_filter_cluster"
+                )
+            with col2:
+                min_confidence = st.slider(
+                    "Minimum confidence threshold",
+                    0.0, 1.0, 0.3, 0.1,
+                    key="ft_ai_move_confidence"
+                )
+            
+            if st.button("Generate Move Suggestions", key="ft_ai_moves_btn"):
+                with st.spinner("Analyzing entries..."):
+                    # Get entries to analyze
+                    all_entries = backend.getAllEntries()
+                    entries_to_analyze = []
+                    
+                    for eid, entry in all_entries.items():
+                        # Filter by cluster if specified
+                        if filter_cluster != "All clusters" and entry.get("clusterID") != filter_cluster:
+                            continue
+                        # Filter by confidence
+                        if entry.get("probability", 0) < min_confidence:
+                            continue
+                        entries_to_analyze.append(eid)
+                    
+                    if not entries_to_analyze:
+                        st.warning("No entries match the filter criteria.")
+                    else:
+                        suggestions = llm_wrapper.suggest_entry_moves(entries_to_analyze[:20])  # Limit to 20 entries
+                        if suggestions:
+                            st.session_state.ft_ai_suggestions = suggestions
+                            st.session_state.ft_ai_operation_type = "moves"
+                        else:
+                            st.error("Failed to generate move suggestions.")
+            
+            # Show suggestions if available
+            if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "moves":
+                applied = llm_wrapper.show_suggestions(st.session_state.ft_ai_suggestions, "moves")
+                if applied > 0:
+                    st.success(f"Applied {applied} move changes!")
+                    save_finetuning_results_to_session(backend)
+                    st.rerun()
+
+        elif operation == "Suggest Merges/Splits":
+            st.markdown("**Suggest merging similar clusters or splitting large ones**")
+            if st.button("Generate Merge/Split Suggestions", key="ft_ai_ops_btn"):
+                with st.spinner("Analyzing cluster relationships..."):
+                    suggestions = llm_wrapper.suggest_cluster_operations()
+                    if suggestions:
+                        st.session_state.ft_ai_suggestions = suggestions
+                        st.session_state.ft_ai_operation_type = "operations"
+                    else:
+                        st.error("Failed to generate operation suggestions.")
+            
+            # Show suggestions if available
+            if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "operations":
+                applied = llm_wrapper.show_suggestions(st.session_state.ft_ai_suggestions, "operations")
+                if applied > 0:
+                    st.success(f"Applied {applied} operation changes!")
+                    save_finetuning_results_to_session(backend)
+                    st.rerun()
+
+        else:  # Free-form Query
+            st.markdown("**Ask AI for general help with clustering**")
+            prompt = st.text_area(
+                "Ask AI for help (e.g., 'Suggest a clearer name for cluster_2 based on its texts').",
+                height=120,
+                key="ft_ai_prompt",
+            )
+
+            if st.button("Ask AI", key="ft_ai_query_btn"):
+                ctx = llm_wrapper.build_context()
+                answer = callLLM(prompt, context=ctx, temperature=temperature, max_tokens=500)
+                if answer:
+                    st.markdown("**AI Suggestion:**")
+                    st.write(answer)
+
+
 def _cid_to_int(cid) -> int:
     if isinstance(cid, int):
         return cid
@@ -726,14 +881,6 @@ def save_finetuning_results_to_session(backend) -> None:
     st.session_state.finetuning_results = build_finetuning_results_snapshot(backend)
 
 
-def _build_ai_context_for_wrapper(backend) -> Dict[str, Any]:
-    """Small context dict for LLM suggestions (names + counts only)."""
-    clusters = backend.getAllClusters()
-    cluster_list = [
-        {"id": cid, "name": c["cluster_name"], "items": ["_"] * len(c["entry_ids"])}
-        for cid, c in clusters.items()
-    ]
-    return {"clusters": cluster_list}
 
 
 # =============================================================================
@@ -741,13 +888,14 @@ def _build_ai_context_for_wrapper(backend) -> Dict[str, Any]:
 # =============================================================================
 
 class LLMWrapper:
-    """Tiny wrapper to abstract LLM providers without hard dependency."""
+    """LLM wrapper with built-in clustering operations support."""
 
-    def __init__(self):
+    def __init__(self, backend=None):
         self.provider = None
         self.client = None
         self.config = {}
         self.initialized = False
+        self.backend = backend
 
     def initLLM(self, provider: str = "mock", config: Dict[str, Any] | None = None) -> bool:
         try:
@@ -854,13 +1002,96 @@ class LLMWrapper:
 
     def _call_mock(self, prompt, context, temperature, max_tokens) -> str:
         p = prompt.lower()
+        
+        # Handle structured operations
+        if "suggest" in p and "name" in p and "json" in p:
+            return self._mock_cluster_names_response(context)
+        elif "suggest" in p and "move" in p and "json" in p:
+            return self._mock_entry_moves_response(context)
+        elif "suggest" in p and ("merge" in p or "split" in p) and "json" in p:
+            return self._mock_cluster_operations_response(context)
+        
+        # Fallback to original mock responses
         if "suggest" in p and "name" in p:
-            return "Based on the cluster content, a clearer name might be “Topic Analysis”."
+            return "Based on the cluster content, a clearer name might be 'Topic Analysis'."
         if "move" in p and "cluster" in p:
             return "Consider moving very short texts to Outliers—they often lack enough signal."
         if "improve" in p:
             return "Try merging overlapping small clusters, renaming with concise labels, and isolating outliers."
-        return f"I understand you want help with: “{prompt}”. Here’s a general suggestion..."
+        return f"I understand you want help with: '{prompt}'. Here's a general suggestion..."
+
+    def _mock_cluster_names_response(self, context) -> str:
+        """Generate mock cluster name suggestions."""
+        clusters_info = context.get("clusters", [])
+        suggestions = {}
+        
+        name_templates = [
+            "Customer Feedback", "Technical Issues", "Product Questions", 
+            "Billing Inquiries", "Feature Requests", "General Support",
+            "Bug Reports", "Account Issues", "Integration Help", "Performance"
+        ]
+        
+        for i, cluster in enumerate(clusters_info):
+            cid = cluster['id']
+            if i < len(name_templates):
+                suggestions[cid] = f"{name_templates[i]} ({cluster['count']} items)"
+            else:
+                suggestions[cid] = f"Topic {i+1} ({cluster['count']} items)"
+        
+        import json
+        return json.dumps(suggestions)
+
+    def _mock_entry_moves_response(self, context) -> str:
+        """Generate mock entry move suggestions."""
+        clusters_info = context.get("clusters", [])
+        if not clusters_info:
+            return json.dumps([])
+        
+        # Mock some moves between clusters
+        moves = []
+        cluster_ids = [c['id'] for c in clusters_info]
+        
+        # Generate 2-3 mock moves
+        for i in range(min(3, len(cluster_ids))):
+            source = cluster_ids[i % len(cluster_ids)]
+            target = cluster_ids[(i + 1) % len(cluster_ids)]
+            if source != target:
+                moves.append({
+                    "entry_id": f"entry_{i+1:03d}",
+                    "target_cluster": target,
+                    "reason": f"Better semantic fit with {target}"
+                })
+        
+        import json
+        return json.dumps(moves)
+
+    def _mock_cluster_operations_response(self, context) -> str:
+        """Generate mock cluster merge/split suggestions."""
+        clusters_info = context.get("clusters", [])
+        if len(clusters_info) < 2:
+            return json.dumps({"merges": [], "splits": []})
+        
+        operations = {"merges": [], "splits": []}
+        
+        # Suggest 1-2 merges if we have enough clusters
+        if len(clusters_info) >= 2:
+            operations["merges"].append({
+                "cluster1": clusters_info[0]['id'],
+                "cluster2": clusters_info[1]['id'],
+                "reason": "Similar themes and content overlap"
+            })
+        
+        # Suggest 1 split if cluster has many items
+        for cluster in clusters_info:
+            if cluster['count'] > 10:
+                operations["splits"].append({
+                    "cluster": cluster['id'],
+                    "reason": f"Large cluster ({cluster['count']} items) may contain distinct sub-topics"
+                })
+                break
+        
+        import json
+        return json.dumps(operations)
 
     def _build_system_message(self, context: Dict[str, Any]) -> str:
         base = (
@@ -872,9 +1103,348 @@ class LLMWrapper:
             base += f"\n\nCurrent clusters: {len(clusters_info)}"
             for i, cluster in enumerate(clusters_info[:5]):
                 name = cluster.get("name", f"Cluster {i+1}")
-                item_count = len(cluster.get("items", []))
+                item_count = cluster.get("count", len(cluster.get("items", [])))
                 base += f"\n- {name}: {item_count} items"
         return base
+
+
+    def _extract_names_from_text(self, text: str, clusters_info: List[Dict]) -> Dict[str, str]:
+        """Fallback: extract cluster name suggestions from text response."""
+        suggestions = {}
+        for cluster in clusters_info:
+            cid = cluster['id']
+            # Simple heuristic: look for the cluster ID in the text
+            if cid in text:
+                # Try to find text after the cluster ID
+                parts = text.split(cid)
+                if len(parts) > 1:
+                    suggestion = parts[1].split('\n')[0].strip('":, ')
+                    if suggestion:
+                        suggestions[cid] = suggestion
+        return suggestions
+
+    def _extract_moves_from_text(self, text: str, entries: List[str]) -> List[Dict[str, str]]:
+        """Fallback: extract move suggestions from text response."""
+        moves = []
+        for entry in entries[:5]:  # Limit to first 5
+            if entry in text:
+                moves.append({
+                    "entry_id": entry,
+                    "target_cluster": "cluster_0",  # Default
+                    "reason": "Suggested by AI"
+                })
+        return moves
+
+    # =============================================================================
+    # Clustering Operations Methods
+    # =============================================================================
+
+    def build_context(self, include_texts=False, max_samples=5) -> Dict[str, Any]:
+        """Build context for LLM operations with optional sample texts."""
+        if not self.backend:
+            return {"clusters": []}
+            
+        clusters = self.backend.getAllClusters()
+        all_entries = self.backend.getAllEntries()
+        
+        cluster_list = []
+        for cid, c in clusters.items():
+            cluster_data = {
+                "id": cid, 
+                "name": c["cluster_name"],
+                "count": len(c["entry_ids"])
+            }
+            if include_texts:
+                sample_texts = [all_entries[eid]["entry_text"][:200] 
+                              for eid in c["entry_ids"][:max_samples] 
+                              if eid in all_entries]
+                cluster_data["sample_texts"] = sample_texts
+            else:
+                cluster_data["items"] = ["_"] * len(c["entry_ids"])
+            cluster_list.append(cluster_data)
+        
+        return {"clusters": cluster_list}
+    
+    def suggest_cluster_names(self) -> Optional[Dict[str, str]]:
+        """Generate cluster name suggestions."""
+        if not self.initialized:
+            return None
+        
+        context = self.build_context(include_texts=True, max_samples=3)
+        prompt = """Analyze the following clusters and suggest better, more descriptive names based on their content. 
+        Return a JSON object with cluster IDs as keys and suggested names as values.
+        
+        Example: {"cluster_0": "Customer Support Issues", "cluster_1": "Product Feedback"}
+        
+        Clusters to analyze:"""
+        
+        # Add cluster context to prompt
+        clusters_info = context.get("clusters", [])
+        for cluster in clusters_info:
+            prompt += f"\n- {cluster['id']}: {cluster['name']} ({cluster['count']} items)"
+            if cluster.get("sample_texts"):
+                prompt += f"\n  Sample texts: {'; '.join(cluster['sample_texts'][:3])}"
+        
+        response = self.callLLM(prompt, context, temperature=0.3, max_tokens=300)
+        if response:
+            try:
+                import json
+                return json.loads(response)
+            except:
+                # Fallback: extract suggestions from text
+                return self._extract_names_from_text(response, clusters_info)
+        return None
+    
+    def suggest_entry_moves(self, entries_to_analyze: List[str]) -> Optional[List[Dict[str, str]]]:
+        """Generate entry move suggestions."""
+        if not self.initialized or not entries_to_analyze:
+            return None
+        
+        context = self.build_context(include_texts=True, max_samples=2)
+        prompt = """Analyze the following entries and suggest which cluster they should be moved to. 
+        Return a JSON array with objects containing entry_id, target_cluster, and reason.
+        
+        Example: [{"entry_id": "001", "target_cluster": "cluster_2", "reason": "Better semantic fit"}]
+        
+        Available clusters:"""
+        
+        # Add cluster context
+        clusters_info = context.get("clusters", [])
+        for cluster in clusters_info:
+            prompt += f"\n- {cluster['id']}: {cluster['name']} ({cluster['count']} items)"
+        
+        prompt += f"\n\nEntries to analyze: {', '.join(entries_to_analyze[:10])}"
+        
+        response = self.callLLM(prompt, context, temperature=0.4, max_tokens=500)
+        if response:
+            try:
+                import json
+                return json.loads(response)
+            except:
+                return self._extract_moves_from_text(response, entries_to_analyze)
+        return None
+    
+    def suggest_cluster_operations(self) -> Optional[Dict[str, Any]]:
+        """Generate cluster merge/split suggestions."""
+        if not self.initialized:
+            return None
+        
+        context = self.build_context(include_texts=True, max_samples=2)
+        prompt = """Analyze the following clusters and suggest:
+        1. Which clusters should be merged (if any)
+        2. Which clusters should be split (if any)
+        
+        Return JSON: {"merges": [{"cluster1": "cluster_0", "cluster2": "cluster_1", "reason": "Similar themes"}], "splits": [{"cluster": "cluster_2", "reason": "Contains distinct sub-topics"}]}
+        
+        Clusters to analyze:"""
+        
+        clusters_info = context.get("clusters", [])
+        for cluster in clusters_info:
+            prompt += f"\n- {cluster['id']}: {cluster['name']} ({cluster['count']} items)"
+            if cluster.get("sample_texts"):
+                prompt += f"\n  Sample: {'; '.join(cluster['sample_texts'][:2])}"
+        
+        response = self.callLLM(prompt, context, temperature=0.5, max_tokens=400)
+        if response:
+            try:
+                import json
+                return json.loads(response)
+            except:
+                return {"merges": [], "splits": []}
+        return None
+    
+    def show_suggestions(self, suggestions: Dict[str, Any], operation_type: str) -> int:
+        """Display and handle suggestion approval workflow."""
+        if not suggestions:
+            st.info("No suggestions available.")
+            return 0
+        
+        applied_count = 0
+        
+        if operation_type == "names":
+            applied_count = self._show_name_suggestions(suggestions)
+        elif operation_type == "moves":
+            applied_count = self._show_move_suggestions(suggestions)
+        elif operation_type == "operations":
+            applied_count = self._show_operation_suggestions(suggestions)
+        
+        return applied_count
+    
+    def _show_name_suggestions(self, suggestions: Dict[str, str]) -> int:
+        """Display cluster name suggestions with approval checkboxes."""
+        if not suggestions or not self.backend:
+            return 0
+        
+        st.markdown("**AI Suggested Cluster Names:**")
+        
+        # Create selection state
+        if "name_suggestions_selected" not in st.session_state:
+            st.session_state.name_suggestions_selected = {}
+        
+        applied_count = 0
+        all_clusters = self.backend.getAllClusters()
+        
+        for cluster_id, suggested_name in suggestions.items():
+            if cluster_id not in all_clusters:
+                continue
+                
+            current_name = all_clusters[cluster_id]["cluster_name"]
+            col1, col2, col3 = st.columns([3, 2, 1])
+            
+            with col1:
+                st.write(f"**{cluster_id}**: {current_name} → {suggested_name}")
+            
+            with col2:
+                selected = st.checkbox(
+                    f"Apply to {cluster_id}",
+                    key=f"name_apply_{cluster_id}",
+                    value=st.session_state.name_suggestions_selected.get(cluster_id, False)
+                )
+                st.session_state.name_suggestions_selected[cluster_id] = selected
+            
+            with col3:
+                if selected and st.button("Apply", key=f"name_btn_{cluster_id}"):
+                    success, msg = self.backend.changeClusterName(cluster_id, suggested_name)
+                    if success:
+                        st.success(f"✅ Renamed {cluster_id}")
+                        applied_count += 1
+                        st.session_state.name_suggestions_selected[cluster_id] = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+        
+        return applied_count
+    
+    def _show_move_suggestions(self, suggestions: List[Dict[str, str]]) -> int:
+        """Display entry move suggestions with approval checkboxes."""
+        if not suggestions or not self.backend:
+            return 0
+        
+        st.markdown("**AI Suggested Entry Moves:**")
+        
+        # Create selection state
+        if "move_suggestions_selected" not in st.session_state:
+            st.session_state.move_suggestions_selected = {}
+        
+        applied_count = 0
+        all_clusters = self.backend.getAllClusters()
+        all_entries = self.backend.getAllEntries()
+        
+        for i, move in enumerate(suggestions):
+            entry_id = move.get("entry_id")
+            target_cluster = move.get("target_cluster")
+            reason = move.get("reason", "No reason provided")
+            
+            if not entry_id or not target_cluster:
+                continue
+                
+            entry = all_entries.get(entry_id)
+            if not entry:
+                continue
+                
+            current_cluster = entry.get("clusterID", "Unknown")
+            target_cluster_name = all_clusters.get(target_cluster, {}).get("cluster_name", target_cluster)
+            current_cluster_name = all_clusters.get(current_cluster, {}).get("cluster_name", current_cluster)
+            
+            col1, col2, col3 = st.columns([4, 1, 1])
+            
+            with col1:
+                st.write(f"**{entry_id}**: {current_cluster_name} → {target_cluster_name}")
+                st.caption(f"Reason: {reason}")
+                st.caption(f"Text: {entry['entry_text'][:100]}...")
+            
+            with col2:
+                selected = st.checkbox(
+                    f"Move {entry_id}",
+                    key=f"move_apply_{i}",
+                    value=st.session_state.move_suggestions_selected.get(i, False)
+                )
+                st.session_state.move_suggestions_selected[i] = selected
+            
+            with col3:
+                if selected and st.button("Apply", key=f"move_btn_{i}"):
+                    success, msg = self.backend.moveEntry(entry_id, target_cluster)
+                    if success:
+                        st.success(f"✅ Moved {entry_id}")
+                        applied_count += 1
+                        st.session_state.move_suggestions_selected[i] = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+        
+        return applied_count
+    
+    def _show_operation_suggestions(self, suggestions: Dict[str, Any]) -> int:
+        """Display cluster merge/split suggestions with approval checkboxes."""
+        if not suggestions or not self.backend:
+            return 0
+        
+        applied_count = 0
+        all_clusters = self.backend.getAllClusters()
+        
+        # Handle merges
+        merges = suggestions.get("merges", [])
+        if merges:
+            st.markdown("**AI Suggested Cluster Merges:**")
+            
+            if "merge_suggestions_selected" not in st.session_state:
+                st.session_state.merge_suggestions_selected = {}
+            
+            for i, merge in enumerate(merges):
+                cluster1 = merge.get("cluster1")
+                cluster2 = merge.get("cluster2")
+                reason = merge.get("reason", "No reason provided")
+                
+                if not cluster1 or not cluster2 or cluster1 not in all_clusters or cluster2 not in all_clusters:
+                    continue
+                    
+                cluster1_name = all_clusters[cluster1]["cluster_name"]
+                cluster2_name = all_clusters[cluster2]["cluster_name"]
+                
+                col1, col2, col3 = st.columns([4, 1, 1])
+                
+                with col1:
+                    st.write(f"**Merge**: {cluster1_name} + {cluster2_name}")
+                    st.caption(f"Reason: {reason}")
+                
+                with col2:
+                    selected = st.checkbox(
+                        f"Merge {cluster1} + {cluster2}",
+                        key=f"merge_apply_{i}",
+                        value=st.session_state.merge_suggestions_selected.get(i, False)
+                    )
+                    st.session_state.merge_suggestions_selected[i] = selected
+                
+                with col3:
+                    if selected and st.button("Apply", key=f"merge_btn_{i}"):
+                        success, msg = self.backend.mergeClusters(cluster1, cluster2)
+                        if success:
+                            st.success(f"✅ Merged clusters")
+                            applied_count += 1
+                            st.session_state.merge_suggestions_selected[i] = False
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg}")
+        
+        # Handle splits (placeholder - would need backend support)
+        splits = suggestions.get("splits", [])
+        if splits:
+            st.markdown("**AI Suggested Cluster Splits:**")
+            st.info("Cluster splitting is not yet implemented in the backend. These are suggestions only.")
+            
+            for split in splits:
+                cluster = split.get("cluster")
+                reason = split.get("reason", "No reason provided")
+                
+                if cluster in all_clusters:
+                    cluster_name = all_clusters[cluster]["cluster_name"]
+                    item_count = len(all_clusters[cluster].get("entry_ids", []))
+                    st.write(f"**Split**: {cluster_name} ({item_count} items)")
+                    st.caption(f"Reason: {reason}")
+        
+        return applied_count
+
+
 
 
 # Singleton helpers
