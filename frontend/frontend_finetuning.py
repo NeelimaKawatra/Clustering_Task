@@ -48,7 +48,6 @@ def _decode_hidden_id(label: str) -> Optional[str]:
     return None
 
 
-
 # =============================================================================
 # MAIN TAB
 # =============================================================================
@@ -394,9 +393,6 @@ def show_drag_drop_board(backend):
                 if not entry:
                     continue
                 text = (entry.get("entry_text") or "").replace("\n", " ").strip()
-                #disp = text[:120] + ("…" if len(text) > 120 else "")
-                #items.append(f"{eid}: {disp}")
-                INV_SEP = "\u2063"  # invisible separator (U+2063)
                 disp = text[:120] + ("…" if len(text) > 120 else "")
                 items.append(f"{disp}{_encode_hidden_id(str(eid))}") 
 
@@ -622,7 +618,7 @@ def show_ai_assist_interface(backend):
         with col_provider:
             provider = st.selectbox(
                 "LLM Provider",
-                ["mock", "openai", "anthropic", "local"],
+                ["mock", "openai"],
                 index=0,
                 key="ft_ai_provider",
                 help="Select your LLM provider. Set API keys in environment variables."
@@ -635,13 +631,7 @@ def show_ai_assist_interface(backend):
                     ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
                     key="ft_ai_model"
                 )
-            elif provider == "anthropic":
-                model = st.selectbox(
-                    "Anthropic Model", 
-                    ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-sonnet-20240229"],
-                    key="ft_ai_model"
-                )
-            else:
+            else:  # mock provider
                 model = st.text_input("Model", value="mock", key="ft_ai_model", disabled=True)
         
         with col_temp:
@@ -652,8 +642,6 @@ def show_ai_assist_interface(backend):
             config = {"model": model}
             if provider == "openai":
                 config["api_key"] = os.getenv("OPENAI_API_KEY")
-            elif provider == "anthropic":
-                config["api_key"] = os.getenv("ANTHROPIC_API_KEY")
             
             if not config.get("api_key"):
                 st.error(f"❌ {provider.upper()} API key not found. Set {provider.upper()}_API_KEY environment variable.")
@@ -903,10 +891,6 @@ class LLMWrapper:
             self.config = config or {}
             if self.provider == "openai":
                 return self._init_openai()
-            if self.provider == "anthropic":
-                return self._init_anthropic()
-            if self.provider == "local":
-                return self._init_local()
             if self.provider == "mock":
                 return self._init_mock()
             st.error(f"Unsupported LLM provider: {provider}")
@@ -929,24 +913,6 @@ class LLMWrapper:
             st.error("OpenAI package not installed. Run: pip install openai")
             return False
 
-    def _init_anthropic(self) -> bool:
-        try:
-            import anthropic  # type: ignore
-            api_key = self.config.get("api_key") or os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                st.error("Anthropic API key not found. Set ANTHROPIC_API_KEY.")
-                return False
-            self.client = anthropic.Anthropic(api_key=api_key)
-            self.initialized = True
-            return True
-        except ImportError:
-            st.error("Anthropic package not installed. Run: pip install anthropic")
-            return False
-
-    def _init_local(self) -> bool:
-        st.info("Local LLM support (placeholder).")
-        self.initialized = True
-        return True
 
     def _init_mock(self) -> bool:
         self.initialized = True
@@ -965,10 +931,6 @@ class LLMWrapper:
         try:
             if self.provider == "openai":
                 return self._call_openai(prompt, context or {}, temperature, max_tokens)
-            if self.provider == "anthropic":
-                return self._call_anthropic(prompt, context or {}, temperature, max_tokens)
-            if self.provider == "local":
-                return self._call_local(prompt, context or {}, temperature, max_tokens)
             if self.provider == "mock":
                 return self._call_mock(prompt, context or {}, temperature, max_tokens)
             return None
@@ -986,19 +948,6 @@ class LLMWrapper:
         )
         return resp.choices[0].message.content
 
-    def _call_anthropic(self, prompt, context, temperature, max_tokens) -> str:
-        sysmsg = self._build_system_message(context)
-        full = f"{sysmsg}\n\nUser: {prompt}"
-        resp = self.client.completions.create(
-            model=self.config.get("model", "claude-3-sonnet-20240229"),
-            prompt=full,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return resp.completion
-
-    def _call_local(self, prompt, context, temperature, max_tokens) -> str:
-        return "Local LLM response (not implemented)"
 
     def _call_mock(self, prompt, context, temperature, max_tokens) -> str:
         p = prompt.lower()
