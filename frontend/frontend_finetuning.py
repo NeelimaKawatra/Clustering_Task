@@ -510,7 +510,8 @@ def show_drag_drop_board(backend):
                     success, _ = backend.moveEntry(eid, target_cid)
                     ok += int(success)
                 st.session_state.finetuning_success_message = f"✅ Applied {ok} change(s)."
-                st.session_state["exp_drag_open"] = False
+                # Keep expander open to show updated state
+                st.session_state["exp_drag_open"] = True
                 save_finetuning_results_to_session(backend)
                 try: st.cache_data.clear()
                 except Exception: pass
