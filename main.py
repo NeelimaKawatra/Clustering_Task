@@ -4,6 +4,13 @@ import time
 import warnings
 warnings.filterwarnings("ignore")
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load the .env that setup_api_keys.py created
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
+
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -14,6 +21,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
 
 # ============================================================================
 # FAST APP STARTUP WITH PROGRESSIVE LOADING
@@ -112,6 +120,7 @@ def initialize_app_with_progress():
         st.rerun()
     
     return True
+
 
 def create_sidebar_navigation():
     """Create clean sidebar with unified reset system"""

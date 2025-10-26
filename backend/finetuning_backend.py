@@ -16,6 +16,14 @@ class FineTuningBackend:
         self.entry_to_cluster: Dict[str, str] = {}
         self.next_cluster_id = 0
         self.initialized = False
+    
+    def reset(self):
+        """Reset the backend to uninitialized state."""
+        self.entries.clear()
+        self.clusters.clear()
+        self.entry_to_cluster.clear()
+        self.next_cluster_id = 0
+        self.initialized = False
 
     def initialize_from_clustering_results(self, clustering_results: Dict[str, Any],
                                            original_data: pd.DataFrame,
@@ -562,7 +570,10 @@ _finetuning_backend = None
 
 def get_finetuning_backend() -> FineTuningBackend:
     """Get the global fine-tuning backend instance."""
-    global _finetuning_backend
-    if _finetuning_backend is None:
-        _finetuning_backend = FineTuningBackend()
-    return _finetuning_backend
+    import streamlit as st
+    
+    # Try to get from session state first (survives reruns)
+    if 'finetuning_backend_instance' not in st.session_state:
+        st.session_state.finetuning_backend_instance = FineTuningBackend()
+    
+    return st.session_state.finetuning_backend_instance

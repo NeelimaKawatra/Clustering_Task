@@ -152,6 +152,14 @@ def tab_preprocessing(backend_available):
                             if "fine-tuning" not in downstream_cleared:
                                 downstream_cleared.append("fine-tuning data")
                     
+                    # Reset finetuning backend instance
+                    if 'finetuning_backend_instance' in st.session_state:
+                        try:
+                            st.session_state.finetuning_backend_instance.reset()
+                        except AttributeError:
+                            # Backend doesn't have reset method yet, just delete it
+                            del st.session_state['finetuning_backend_instance']
+                    
                     # Update permanent progress
                     if 'permanent_progress' in st.session_state:
                         st.session_state.permanent_progress['clustering'] = False

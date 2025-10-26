@@ -9,6 +9,13 @@ from typing import Dict, Any, Optional, List, Tuple
 import re
 import streamlit as st
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv is optional
+
 # Backend entrypoint
 from backend.finetuning_backend import get_finetuning_backend
 
@@ -367,6 +374,9 @@ def show_drag_drop_board(backend):
             conf_level = conf_map.get(conf_choice)
 
         # --- Build containers from filtered/unfiltered view
+        # IMPORTANT: Get fresh cluster data from backend to ensure we have latest state
+        clusters = backend.getAllClusters()
+        
         try:
             if filter_text or conf_level:
                 filtered_map = backend.getEntriesByClusterFiltered(filter_text, conf_level)
@@ -471,15 +481,30 @@ def show_drag_drop_board(backend):
                 eid = _eid_from_item(item)
                 if eid and old_cluster_of.get(eid) != new_cid:
                     pending_moves.append((eid, new_cid))
+        
+        # Debug: Log if pending moves exist
+        if pending_moves and st.session_state.get("debug_dnd", False):
+            st.write(f"Debug: {len(pending_moves)} pending moves detected")
+            for eid, new_cid in pending_moves[:3]:
+                st.write(f"  - {eid}: {old_cluster_of.get(eid, 'unknown')} -> {new_cid}")
 
         if pending_moves:
             st.session_state["exp_drag_open"] = True
-            if st.button("Apply changes", use_container_width=True):
+            if st.button("Apply changes", use_container_width=True, key="apply_dnd_changes_btn"):
                 ok = 0
+                failed = []
                 for eid, target_cid in pending_moves:
-                    success, _ = backend.moveEntry(eid, target_cid)
-                    ok += int(success)
-                st.session_state.finetuning_success_message = f"✅ Applied {ok} change(s)."
+                    success, msg = backend.moveEntry(eid, target_cid)
+                    if success:
+                        ok += 1
+                    else:
+                        failed.append(f"{eid}: {msg}")
+                
+                if ok > 0:
+                    st.session_state.finetuning_success_message = f"✅ Applied {ok} change(s)."
+                if failed:
+                    st.session_state.finetuning_error_message = f"Failed: {', '.join(failed[:3])}"
+                
                 # Keep expander open to show updated state
                 st.session_state["exp_drag_open"] = True
                 save_finetuning_results_to_session(backend)
@@ -487,9 +512,19 @@ def show_drag_drop_board(backend):
                 except Exception: pass
                 try: st.cache_resource.clear()
                 except Exception: pass
+                # Force widget to completely reset on next render
                 st.session_state["finetuning_refresh_token"] = st.session_state.get(
                     "finetuning_refresh_token", 0
                 ) + 1
+                
+                # Clear ALL sortable-related state to force fresh widget
+                for key in list(st.session_state.keys()):
+                    if "sortable" in key.lower() or key.startswith("sort_items"):
+                        del st.session_state[key]
+                
+                # Add marker that we just applied changes to help debug
+                st.session_state["_last_dnd_apply_token"] = st.session_state["finetuning_refresh_token"]
+                
                 st.rerun()
         else:
             st.caption(
@@ -610,7 +645,14 @@ def show_entry_management_interface(backend):
 def show_ai_assist_interface(backend):
     """AI assist with structured operations for clustering optimization."""
     st.markdown("---")
-    with st.expander("🤖 AI Assist (optional)"):
+    
+    # Manage expander state to keep it open during interactions
+    st.session_state.setdefault("exp_ai_assist_open", False)
+    
+    def _keep_ai_open():
+        st.session_state["exp_ai_assist_open"] = True
+    
+    with st.expander("🤖 AI Assist (optional)", expanded=st.session_state["exp_ai_assist_open"]):
         # LLM Provider Selection (prominent)
         st.markdown("**🔧 LLM Configuration**")
         col_provider, col_model, col_temp = st.columns([2, 2, 1])
@@ -621,7 +663,8 @@ def show_ai_assist_interface(backend):
                 ["mock", "openai"],
                 index=0,
                 key="ft_ai_provider",
-                help="Select your LLM provider. Set API keys in environment variables."
+                help="Select your LLM provider. Set API keys in environment variables.",
+                on_change=_keep_ai_open
             )
         
         with col_model:
@@ -629,13 +672,19 @@ def show_ai_assist_interface(backend):
                 model = st.selectbox(
                     "OpenAI Model",
                     ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-                    key="ft_ai_model"
+                    key="ft_ai_model",
+                    on_change=_keep_ai_open
                 )
             else:  # mock provider
                 model = st.text_input("Model", value="mock", key="ft_ai_model", disabled=True)
         
         with col_temp:
             temperature = st.slider("Creativity", 0.0, 1.0, 0.7, 0.05, key="ft_ai_temp")
+        
+        # Keep expander open when temperature changes
+        if st.session_state.get("ft_ai_temp_changed", False):
+            st.session_state["exp_ai_assist_open"] = True
+            st.session_state["ft_ai_temp_changed"] = False
         
         # Initialize LLM with selected provider
         if provider != "mock":
@@ -652,11 +701,15 @@ def show_ai_assist_interface(backend):
         operation = st.selectbox(
             "Choose what you want AI to help with:",
             ["Suggest Cluster Names", "Suggest Entry Moves", "Suggest Merges/Splits", "Free-form Query"],
-            key="ft_ai_operation"
+            key="ft_ai_operation",
+            on_change=_keep_ai_open
         )
 
-        # Initialize LLM wrapper with backend
-        llm_wrapper = LLMWrapper(backend)
+        # Initialize LLM wrapper with backend (CRITICAL FIX)
+        if 'llm_wrapper' not in st.session_state:
+            st.session_state.llm_wrapper = LLMWrapper(backend)
+        llm_wrapper = st.session_state.llm_wrapper
+        llm_wrapper.backend = backend  # Ensure backend is current
         
         # Initialize with selected provider and model
         if provider != "mock":
@@ -678,13 +731,18 @@ def show_ai_assist_interface(backend):
         if operation == "Suggest Cluster Names":
             st.markdown("**Suggest better names for all clusters based on their content**")
             if st.button("Generate Name Suggestions", key="ft_ai_names_btn"):
+                st.session_state["exp_ai_assist_open"] = True
                 with st.spinner("Analyzing clusters..."):
-                    suggestions = llm_wrapper.suggest_cluster_names()
-                    if suggestions:
-                        st.session_state.ft_ai_suggestions = suggestions
-                        st.session_state.ft_ai_operation_type = "names"
-                    else:
-                        st.error("Failed to generate name suggestions.")
+                    try:
+                        suggestions = llm_wrapper.suggest_cluster_names()
+                        if suggestions:
+                            st.session_state.ft_ai_suggestions = suggestions
+                            st.session_state.ft_ai_operation_type = "names"
+                            st.success("✅ Generated name suggestions successfully!")
+                        else:
+                            st.error("Failed to generate name suggestions. Try adjusting the prompt or check API status.")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
             
             # Show suggestions if available
             if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "names":
@@ -703,7 +761,8 @@ def show_ai_assist_interface(backend):
                 filter_cluster = st.selectbox(
                     "Analyze entries from cluster",
                     ["All clusters"] + list(backend.getAllClusters().keys()),
-                    key="ft_ai_move_filter_cluster"
+                    key="ft_ai_move_filter_cluster",
+                    on_change=_keep_ai_open
                 )
             with col2:
                 min_confidence = st.slider(
@@ -713,6 +772,7 @@ def show_ai_assist_interface(backend):
                 )
             
             if st.button("Generate Move Suggestions", key="ft_ai_moves_btn"):
+                st.session_state["exp_ai_assist_open"] = True
                 with st.spinner("Analyzing entries..."):
                     # Get entries to analyze
                     all_entries = backend.getAllEntries()
@@ -730,12 +790,16 @@ def show_ai_assist_interface(backend):
                     if not entries_to_analyze:
                         st.warning("No entries match the filter criteria.")
                     else:
-                        suggestions = llm_wrapper.suggest_entry_moves(entries_to_analyze[:20])  # Limit to 20 entries
-                        if suggestions:
-                            st.session_state.ft_ai_suggestions = suggestions
-                            st.session_state.ft_ai_operation_type = "moves"
-                        else:
-                            st.error("Failed to generate move suggestions.")
+                        try:
+                            suggestions = llm_wrapper.suggest_entry_moves(entries_to_analyze[:20])  # Limit to 20 entries
+                            if suggestions:
+                                st.session_state.ft_ai_suggestions = suggestions
+                                st.session_state.ft_ai_operation_type = "moves"
+                                st.success(f"✅ Generated {len(suggestions)} move suggestions successfully!")
+                            else:
+                                st.error("Failed to generate move suggestions.")
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
             
             # Show suggestions if available
             if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "moves":
@@ -748,13 +812,20 @@ def show_ai_assist_interface(backend):
         elif operation == "Suggest Merges/Splits":
             st.markdown("**Suggest merging similar clusters or splitting large ones**")
             if st.button("Generate Merge/Split Suggestions", key="ft_ai_ops_btn"):
+                st.session_state["exp_ai_assist_open"] = True
                 with st.spinner("Analyzing cluster relationships..."):
-                    suggestions = llm_wrapper.suggest_cluster_operations()
-                    if suggestions:
-                        st.session_state.ft_ai_suggestions = suggestions
-                        st.session_state.ft_ai_operation_type = "operations"
-                    else:
-                        st.error("Failed to generate operation suggestions.")
+                    try:
+                        suggestions = llm_wrapper.suggest_cluster_operations()
+                        if suggestions:
+                            st.session_state.ft_ai_suggestions = suggestions
+                            st.session_state.ft_ai_operation_type = "operations"
+                            merges = len(suggestions.get("merges", []))
+                            splits = len(suggestions.get("splits", []))
+                            st.success(f"✅ Generated {merges} merge and {splits} split suggestions successfully!")
+                        else:
+                            st.error("Failed to generate operation suggestions.")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
             
             # Show suggestions if available
             if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "operations":
@@ -770,9 +841,11 @@ def show_ai_assist_interface(backend):
                 "Ask AI for help (e.g., 'Suggest a clearer name for cluster_2 based on its texts').",
                 height=120,
                 key="ft_ai_prompt",
+                on_change=_keep_ai_open
             )
 
             if st.button("Ask AI", key="ft_ai_query_btn"):
+                st.session_state["exp_ai_assist_open"] = True
                 ctx = llm_wrapper.build_context()
                 answer = callLLM(prompt, context=ctx, temperature=temperature, max_tokens=500)
                 if answer:
@@ -962,7 +1035,7 @@ class LLMWrapper:
         
         # Fallback to original mock responses
         if "suggest" in p and "name" in p:
-            return "Based on the cluster content, a clearer name might be 'Topic Analysis'."
+            return self._mock_cluster_names_response(context)
         if "move" in p and "cluster" in p:
             return "Consider moving very short texts to Outliers—they often lack enough signal."
         if "improve" in p:
@@ -974,18 +1047,16 @@ class LLMWrapper:
         clusters_info = context.get("clusters", [])
         suggestions = {}
         
-        name_templates = [
-            "Customer Feedback", "Technical Issues", "Product Questions", 
-            "Billing Inquiries", "Feature Requests", "General Support",
-            "Bug Reports", "Account Issues", "Integration Help", "Performance"
-        ]
-        
-        for i, cluster in enumerate(clusters_info):
+        for cluster in clusters_info:
             cid = cluster['id']
-            if i < len(name_templates):
-                suggestions[cid] = f"{name_templates[i]} ({cluster['count']} items)"
+            # Use first words from sample texts
+            samples = cluster.get('sample_texts', [])
+            if samples:
+                words = samples[0].split()[:3]
+                name = ' '.join(words).title()
             else:
-                suggestions[cid] = f"Topic {i+1} ({cluster['count']} items)"
+                name = f"Topic {cluster.get('name', cid)}"
+            suggestions[cid] = name
         
         import json
         return json.dumps(suggestions)
@@ -1042,10 +1113,41 @@ class LLMWrapper:
         import json
         return json.dumps(operations)
 
+    def _extract_json(self, text: str):
+        """Extract JSON from text, handling markdown code blocks."""
+        import json
+        import re
+        
+        # Try direct parse first
+        try:
+            return json.loads(text.strip())
+        except:
+            pass
+        
+        # Extract from markdown code blocks
+        match = re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except:
+                pass
+        
+        # Extract first JSON-like structure
+        match = re.search(r'(\{.*?\}|\[.*?\])', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except:
+                pass
+        
+        return None
+
     def _build_system_message(self, context: Dict[str, Any]) -> str:
         base = (
             "You are an expert in text clustering and data analysis. "
-            "Suggest cluster names, merges, and item moves. Be concise and actionable."
+            "Suggest cluster names, merges, and item moves. "
+            "IMPORTANT: Return ONLY valid JSON. Do not include explanations, markdown formatting, or code blocks. "
+            "Just the raw JSON object or array."
         )
         clusters_info = (context or {}).get("clusters", [])
         if clusters_info:
@@ -1136,10 +1238,10 @@ class LLMWrapper:
         
         response = self.callLLM(prompt, context, temperature=0.3, max_tokens=300)
         if response:
-            try:
-                import json
-                return json.loads(response)
-            except:
+            parsed = self._extract_json(response)
+            if parsed and isinstance(parsed, dict):
+                return parsed
+            else:
                 # Fallback: extract suggestions from text
                 return self._extract_names_from_text(response, clusters_info)
         return None
@@ -1195,10 +1297,10 @@ class LLMWrapper:
         
         response = self.callLLM(prompt, context, temperature=0.5, max_tokens=400)
         if response:
-            try:
-                import json
-                return json.loads(response)
-            except:
+            parsed = self._extract_json(response)
+            if parsed and isinstance(parsed, dict):
+                return parsed
+            else:
                 return {"merges": [], "splits": []}
         return None
     
@@ -1224,6 +1326,9 @@ class LLMWrapper:
         if not suggestions or not self.backend:
             return 0
         
+        # Keep expander open when showing suggestions
+        st.session_state["exp_ai_assist_open"] = True
+        
         st.markdown("**AI Suggested Cluster Names:**")
         
         # Create selection state
@@ -1245,7 +1350,7 @@ class LLMWrapper:
             
             with col2:
                 selected = st.checkbox(
-                    f"Apply to {cluster_id}",
+                    f"Apply to {current_name}",
                     key=f"name_apply_{cluster_id}",
                     value=st.session_state.name_suggestions_selected.get(cluster_id, False)
                 )
@@ -1258,6 +1363,7 @@ class LLMWrapper:
                         st.success(f"✅ Renamed {cluster_id}")
                         applied_count += 1
                         st.session_state.name_suggestions_selected[cluster_id] = False
+                        save_finetuning_results_to_session(self.backend)
                         st.rerun()
                     else:
                         st.error(f"❌ {msg}")
@@ -1268,6 +1374,9 @@ class LLMWrapper:
         """Display entry move suggestions with approval checkboxes."""
         if not suggestions or not self.backend:
             return 0
+        
+        # Keep expander open when showing suggestions
+        st.session_state["exp_ai_assist_open"] = True
         
         st.markdown("**AI Suggested Entry Moves:**")
         
@@ -1317,6 +1426,7 @@ class LLMWrapper:
                         st.success(f"✅ Moved {entry_id}")
                         applied_count += 1
                         st.session_state.move_suggestions_selected[i] = False
+                        save_finetuning_results_to_session(self.backend)
                         st.rerun()
                     else:
                         st.error(f"❌ {msg}")
@@ -1327,6 +1437,9 @@ class LLMWrapper:
         """Display cluster merge/split suggestions with approval checkboxes."""
         if not suggestions or not self.backend:
             return 0
+        
+        # Keep expander open when showing suggestions
+        st.session_state["exp_ai_assist_open"] = True
         
         applied_count = 0
         all_clusters = self.backend.getAllClusters()
@@ -1371,6 +1484,7 @@ class LLMWrapper:
                             st.success(f"✅ Merged clusters")
                             applied_count += 1
                             st.session_state.merge_suggestions_selected[i] = False
+                            save_finetuning_results_to_session(self.backend)
                             st.rerun()
                         else:
                             st.error(f"❌ {msg}")

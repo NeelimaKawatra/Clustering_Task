@@ -241,6 +241,17 @@ class ResetManager:
         # Clear column choices + draft/commit buckets on key reset types
         if reset_type in ['full', 'file_change']:
             self._clear_column_choices()
+        
+        # Reset finetuning backend instance when finetuning is reset
+        if reset_type in ['full', 'file_change', 'column_change', 'preprocessing_change', 'clustering_change']:
+            if 'finetuning_backend_instance' in st.session_state:
+                try:
+                    st.session_state.finetuning_backend_instance.reset()
+                except AttributeError:
+                    # Backend doesn't have reset method, just delete it
+                    del st.session_state['finetuning_backend_instance']
+                except Exception:
+                    pass
 
     
     def _update_permanent_progress(self, reset_type: str, reset_summary: Dict[str, Any]):
