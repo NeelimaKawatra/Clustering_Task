@@ -40,7 +40,7 @@ def tab_llm_settings(backend_available: bool):
             'max_tokens': 500,
             'initialized': False
         }
-    
+
     # Header
     st.subheader("🔧 LLM Provider Configuration")
     st.markdown("""
@@ -147,6 +147,18 @@ def tab_llm_settings(backend_available: bool):
     if save_button:
         _save_configuration(provider, temperature, max_tokens)
     
+    # Optional back navigation to fine-tuning (placed AFTER save configuration)
+    if st.session_state.get("finetuning_ever_visited"):
+        st.markdown("---")
+        back_col, spacer_col = st.columns([1, 3])
+        st.caption("Once you've saved your LLM configuration, return to continue fine-tuning your clusters.")
+        with back_col:
+            if st.button("⬅️ Back to Fine-tuning", use_container_width=True, key="llm_back_to_finetuning"):
+                st.session_state.current_page = "finetuning"
+                st.rerun()
+        with spacer_col:
+            st.empty()
+    
     st.markdown("---")
     
     # Current Configuration Display
@@ -159,7 +171,6 @@ def tab_llm_settings(backend_available: bool):
     _display_cost_estimates(provider)
     _display_usage_tips()
     _display_temperature_guide()
-
 
 def _configure_openai_provider():
     """Configure OpenAI-specific settings"""
