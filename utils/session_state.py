@@ -1,4 +1,4 @@
-# utils/session_state.py - Updated with unified reset system
+# utils/session_state.py - Updated with LLM configuration support
 import streamlit as st
 import time
 
@@ -87,6 +87,16 @@ def initialize_session_state(backend_available=True):
     # Session management
     if 'session_id' not in st.session_state:
         st.session_state.session_id = f"user_{int(time.time())}"
+    
+    # LLM Configuration (NEW)
+    if 'llm_config' not in st.session_state:
+        st.session_state.llm_config = {
+            'provider': 'mock',
+            'model': 'gpt-4o-mini',
+            'temperature': 0.7,
+            'max_tokens': 500,
+            'initialized': False
+        }
     
     # Backend initialization
     if backend_available and 'backend' not in st.session_state:

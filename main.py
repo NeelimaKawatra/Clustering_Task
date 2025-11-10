@@ -1,4 +1,4 @@
-# main.py - Complete updated Clustery Application with unified reset system
+# main.py - Complete Clustery Application with ultra-compact sidebar
 import streamlit as st
 import time
 import warnings
@@ -76,6 +76,7 @@ def initialize_app_with_progress():
             from frontend.frontend_clustering import tab_clustering
             from frontend.frontend_results import tab_results
             from frontend.frontend_finetuning import tab_finetuning
+            from frontend.frontend_llm_settings import tab_llm_settings
             from utils.session_state import initialize_session_state, reset_analysis
             from utils.styles import apply_custom_styles
             
@@ -85,7 +86,8 @@ def initialize_app_with_progress():
                 'preprocessing': tab_preprocessing,
                 'clustering': tab_clustering,
                 'results': tab_results,
-                'finetuning': tab_finetuning
+                'finetuning': tab_finetuning,
+                'llm_settings': tab_llm_settings
             }
             st.session_state.initialize_session_state = initialize_session_state
             st.session_state.apply_custom_styles = apply_custom_styles
@@ -123,34 +125,80 @@ def initialize_app_with_progress():
 
 
 def create_sidebar_navigation():
-    """Create clean sidebar with unified reset system"""
+    """Create ultra-compact sidebar navigation (fits in one screen)"""
     
-    # Disable sidebar scrolling
+    # Ultra-compact CSS styling
     st.markdown("""
     <style>
-    section[data-testid="stSidebar"] {
-        overflow: hidden !important;
-        max-height: 100vh !important;
+    /* Minimal padding everywhere */
+    [data-testid="stSidebar"] .block-container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
     }
-    section[data-testid="stSidebar"] > div {
-        overflow: hidden !important;
-        height: 100vh !important;
+    
+    /* Ultra-compact buttons */
+    [data-testid="stSidebar"] button {
+        padding: 0.25rem 0.5rem !important;
+        font-size: 0.8rem !important;
+        margin: 0.15rem 0 !important;
+        line-height: 1.2 !important;
+    }
+    
+    /* Remove button height constraints */
+    [data-testid="stSidebar"] button {
+        min-height: unset !important;
+        height: auto !important;
+    }
+    
+    /* Ultra-compact headers */
+    [data-testid="stSidebar"] h3 {
+        font-size: 0.85rem !important;
+        margin: 0.4rem 0 0.2rem 0 !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Minimal dividers */
+    [data-testid="stSidebar"] hr {
+        margin: 0.4rem 0 !important;
+    }
+    
+    /* Ultra-compact branding */
+    .sidebar-branding h1 {
+        font-size: 1.2rem !important;
+        margin: 0 !important;
+        line-height: 1.3 !important;
+    }
+    
+    .sidebar-branding p {
+        font-size: 0.7rem !important;
+        margin: 0 !important;
+        line-height: 1.2 !important;
+    }
+    
+    /* Remove extra spacing from Streamlit */
+    [data-testid="stSidebar"] .element-container {
+        margin-bottom: 0 !important;
+    }
+    
+    /* Compact markdown */
+    [data-testid="stSidebar"] .stMarkdown {
+        margin-bottom: 0 !important;
     }
     </style>
     """, unsafe_allow_html=True)
     
     with st.sidebar:
-        # App branding
+        # Ultra-compact branding
         st.markdown("""
-        <div style="text-align: center; padding: 20px 0;">
-            <h1 style="color: #667eea; margin: 0; font-size: 1.8rem;">🔍 Clustery</h1>
-            <p style="color: #666; margin: 5px 0 0 0; font-size: 0.9rem;">Text Clustering Tool</p>
+        <div class="sidebar-branding" style="text-align: center; padding: 0.3rem 0;">
+            <h1 style="color: #667eea;">🔍 Clustery</h1>
+            <p style="color: #666;">Text Clustering Tool</p>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown("---")
         
-        # Initialize permanent progress tracking - these NEVER get reset except by explicit user reset
+        # Initialize permanent progress tracking
         if 'permanent_progress' not in st.session_state:
             st.session_state.permanent_progress = {
                 'data_loading': False,
@@ -158,13 +206,13 @@ def create_sidebar_navigation():
                 'clustering': False
             }
         
-        # Update permanent progress based on current completion (only goes UP, never DOWN)
+        # Update permanent progress based on current completion
         current_data_complete = bool(st.session_state.get('tab_data_loading_complete', False))
         current_preprocessing_complete = bool(st.session_state.get('tab_preprocessing_complete', False))
         current_clustering_complete = bool(st.session_state.get('clustering_results') and 
                                          st.session_state.clustering_results.get("success", False))
         
-        # STICKY updates: only set to True, never False (unless explicit reset)
+        # STICKY updates: only set to True, never False
         st.session_state.permanent_progress['data_loading'] = (
             st.session_state.permanent_progress.get('data_loading', False) or current_data_complete
         )
@@ -282,42 +330,34 @@ def create_sidebar_navigation():
         
         st.markdown("---")
         
-        # Debug info
-        with st.expander("Debug", expanded=False):
-            st.write("Current Status:")
-            st.write(f"Data Complete: {current_data_complete}")
-            st.write(f"Preprocessing Complete: {current_preprocessing_complete}") 
-            st.write(f"Clustering Complete: {current_clustering_complete}")
-            st.write("Permanent Progress:")
-            st.write(f"Data Ever: {data_ever_completed}")
-            st.write(f"Preprocessing Ever: {preprocessing_ever_completed}")
-            st.write(f"Clustering Ever: {clustering_ever_completed}")
+        # 6. LLM Settings - Always accessible
+        button_style = "primary" if st.session_state.current_page == "llm_settings" else "secondary"
         
-        # Reset button using unified reset system
+        # Show LLM status in button text
+        if 'llm_config' in st.session_state and st.session_state.llm_config.get('initialized'):
+            llm_text = "✅ LLM Settings"
+        else:
+            llm_text = "🤖 LLM Settings"
+        
+        if st.button(llm_text,
+                    type=button_style,
+                    use_container_width=True,
+                    key="nav_llm_settings"):
+            st.session_state.current_page = "llm_settings"
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Reset button
         if st.button("🔄 Start New Analysis", 
-                    help="Clear all data and start over",
                     use_container_width=True,
                     key="reset_analysis_btn"):
-            
-            # Use unified reset system for complete reset
             from utils.reset_manager import reset_full_analysis
-            reset_summary = reset_full_analysis(
-                preserve_columns=False, 
-                show_message=True
-            )
-            
-            # Additional UI state for file uploader
+            reset_full_analysis(preserve_columns=False, show_message=True)
             st.session_state.file_uploader_reset = True
             st.session_state.file_reset_reason = "start_new_analysis"
             st.session_state["data_loading_alerts"] = []
-            
             st.rerun()
-
-
-def reset_downstream_from_data_loading():
-    """Use unified reset system for data loading changes"""
-    from utils.reset_manager import reset_from_column_change
-    return reset_from_column_change("data_loading", show_message=False)
 
 
 # ============================================================================
@@ -345,6 +385,7 @@ def render_main_content():
             from frontend.frontend_clustering import tab_clustering
             from frontend.frontend_results import tab_results
             from frontend.frontend_finetuning import tab_finetuning
+            from frontend.frontend_llm_settings import tab_llm_settings
 
             tab_functions = {
                 'data_loading': tab_data_loading,
@@ -352,6 +393,7 @@ def render_main_content():
                 'clustering': tab_clustering,
                 'results': tab_results,
                 'finetuning': tab_finetuning,
+                'llm_settings': tab_llm_settings
             }
         except ImportError as e:
             st.error(f"Failed to import tab functions: {e}")
@@ -389,11 +431,18 @@ def render_main_content():
             st.markdown("Explore your clustering results and export findings.")
             st.markdown("---")
             tab_functions['results'](st.session_state.get('BACKEND_AVAILABLE', False))
+        
+        elif current_page == "llm_settings":
+            st.markdown("# 🤖 LLM Configuration")
+            st.markdown("Configure AI assistant settings for all operations.")
+            st.markdown("---")
+            tab_functions['llm_settings'](st.session_state.get('BACKEND_AVAILABLE', False))
             
     except Exception as e:
         st.error(f"Error rendering {current_page}: {e}")
         st.exception(e)
         st.info("Try refreshing the page or restarting the analysis.")
+
 
 def main():
     """Main app entry point"""
@@ -408,7 +457,7 @@ def main():
     if 'apply_custom_styles' in st.session_state:
         st.session_state.apply_custom_styles()
 
-    # >>> Ensure flags are up-to-date BEFORE building the sidebar <<<
+    # Ensure flags are up-to-date BEFORE building the sidebar
     try:
         from utils.session_state import detect_changes_and_cascade, check_automatic_completion
         detect_changes_and_cascade()
@@ -422,6 +471,6 @@ def main():
     # Render main content
     render_main_content()
 
+
 if __name__ == "__main__":
     main()
-

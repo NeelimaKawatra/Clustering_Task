@@ -1,4 +1,4 @@
-# tabs/__init__.py
+# frontend/__init__.py
 """
 Tab modules for Clustery application with sidebar navigation support
 """
@@ -8,6 +8,7 @@ from .frontend_preprocessing import tab_preprocessing
 from .frontend_clustering import tab_clustering
 from .frontend_results import tab_results
 from .frontend_finetuning import tab_finetuning
+from .frontend_llm_settings import tab_llm_settings  # NEW
 
 # Navigation helper functions
 def get_tab_status():
@@ -19,7 +20,8 @@ def get_tab_status():
         'preprocessing': bool(st.session_state.get('tab_preprocessing_complete', False)),
         'clustering': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False)),
         'results': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False)),
-        'finetuning': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False))
+        'finetuning': bool(st.session_state.get('clustering_results') and st.session_state.clustering_results.get("success", False)),
+        'llm_settings': True  # Always accessible
     }
 
 def navigate_to_next_tab():
@@ -50,6 +52,7 @@ __all__ = [
     'tab_clustering',
     'tab_results',
     'tab_finetuning',
+    'tab_llm_settings',  # NEW
     'get_tab_status',
     'navigate_to_next_tab',
     'set_current_page'

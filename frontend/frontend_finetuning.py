@@ -643,90 +643,86 @@ def show_entry_management_interface(backend):
 
 
 def show_ai_assist_interface(backend):
-    """AI assist with structured operations for clustering optimization."""
+    """AI assist with structured operations - uses session-wide LLM config"""
+    
     st.markdown("---")
     
-    # Manage expander state to keep it open during interactions
+    # Import check function
+    from frontend.frontend_llm_settings import check_llm_configuration
+    
+    # Check if LLM is configured
+    llm_status = check_llm_configuration()
+    
+    if not llm_status['configured']:
+        st.warning(f"⚠️ **{llm_status['message']}**")
+        st.markdown("""
+        **AI Assist requires LLM configuration.**
+        
+        Go to **LLM Settings** in the sidebar to:
+        - Choose your LLM provider (Mock for testing, OpenAI for production)
+        - Select model and temperature
+        - Configure API credentials
+        """)
+        
+        col1, col2, col3 = st.columns([1, 1, 2])
+        with col1:
+            if st.button("⚙️ Open LLM Settings", use_container_width=True):
+                st.session_state.current_page = "llm_settings"
+                st.rerun()
+        
+        return
+    
+    # Get session config
+    llm_config = st.session_state.llm_config
+    provider = llm_config['provider']
+    model = llm_config['model']
+    temperature = llm_config['temperature']
+    max_tokens = llm_config.get('max_tokens', 500)
+    
+    # Show current configuration at top
+    st.success(f"✅ **AI Assistant Active**: {provider.upper()} ({model}) • Temperature: {temperature:.2f}")
+    
+    # Manage expander state
     st.session_state.setdefault("exp_ai_assist_open", False)
     
     def _keep_ai_open():
         st.session_state["exp_ai_assist_open"] = True
     
-    with st.expander("🤖 AI Assist (optional)", expanded=st.session_state["exp_ai_assist_open"]):
-        # LLM Provider Selection (prominent)
-        st.markdown("**🔧 LLM Configuration**")
-        col_provider, col_model, col_temp = st.columns([2, 2, 1])
-        
-        with col_provider:
-            provider = st.selectbox(
-                "LLM Provider",
-                ["mock", "openai"],
-                index=0,
-                key="ft_ai_provider",
-                help="Select your LLM provider. Set API keys in environment variables.",
-                on_change=_keep_ai_open
-            )
-        
-        with col_model:
-            if provider == "openai":
-                model = st.selectbox(
-                    "OpenAI Model",
-                    ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-                    key="ft_ai_model",
-                    on_change=_keep_ai_open
-                )
-            else:  # mock provider
-                model = st.text_input("Model", value="mock", key="ft_ai_model", disabled=True)
-        
-        with col_temp:
-            temperature = st.slider("Creativity", 0.0, 1.0, 0.7, 0.05, key="ft_ai_temp")
-        
-        # Keep expander open when temperature changes
-        if st.session_state.get("ft_ai_temp_changed", False):
-            st.session_state["exp_ai_assist_open"] = True
-            st.session_state["ft_ai_temp_changed"] = False
-        
-        # Initialize LLM with selected provider
-        if provider != "mock":
-            config = {"model": model}
-            if provider == "openai":
-                config["api_key"] = os.getenv("OPENAI_API_KEY")
-            
-            if not config.get("api_key"):
-                st.error(f"❌ {provider.upper()} API key not found. Set {provider.upper()}_API_KEY environment variable.")
-                st.stop()
+    with st.expander("🤖 AI Assist Operations", expanded=st.session_state["exp_ai_assist_open"]):
         
         # Operation Selection
-        st.markdown("**🤖 AI Operation**")
+        st.markdown("**Choose AI Operation**")
         operation = st.selectbox(
-            "Choose what you want AI to help with:",
+            "What would you like AI to help with?",
             ["Suggest Cluster Names", "Suggest Entry Moves", "Suggest Merges/Splits", "Free-form Query"],
             key="ft_ai_operation",
             on_change=_keep_ai_open
         )
-
-        # Initialize LLM wrapper with backend (CRITICAL FIX)
-        if 'llm_wrapper' not in st.session_state:
-            st.session_state.llm_wrapper = LLMWrapper(backend)
-        llm_wrapper = st.session_state.llm_wrapper
-        llm_wrapper.backend = backend  # Ensure backend is current
         
-        # Initialize with selected provider and model
+        # Initialize LLM with session config
+        if 'llm_wrapper' not in st.session_state:
+            from frontend.frontend_finetuning import LLMWrapper
+            st.session_state.llm_wrapper = LLMWrapper(backend)
+        
+        llm_wrapper = st.session_state.llm_wrapper
+        llm_wrapper.backend = backend
+        
+        # Initialize with session config
         if provider != "mock":
+            config = {
+                "model": model,
+                "api_key": os.getenv("OPENAI_API_KEY")
+            }
             success = llm_wrapper.initLLM(provider=provider, config=config)
             if not success:
-                st.error(f"Failed to initialize {provider.upper()} LLM. Check your API key and model selection.")
-                st.stop()
+                st.error("❌ Failed to initialize LLM. Check your configuration in LLM Settings.")
+                if st.button("⚙️ Go to LLM Settings"):
+                    st.session_state.current_page = "llm_settings"
+                    st.rerun()
+                return
         else:
             llm_wrapper.initLLM(provider="mock", config={"model": "mock"})
         
-        # Show LLM Status
-        if llm_wrapper.initialized:
-            if provider == "mock":
-                st.info("🤖 Using Mock LLM (no API calls)")
-            else:
-                st.success(f"✅ Connected to {provider.upper()} ({model})")
-
         # Operation-specific UI
         if operation == "Suggest Cluster Names":
             st.markdown("**Suggest better names for all clusters based on their content**")
@@ -755,7 +751,7 @@ def show_ai_assist_interface(backend):
         elif operation == "Suggest Entry Moves":
             st.markdown("**Suggest moving entries to better-fitting clusters**")
             
-            # Filter options for entries to analyze
+            # Filter options
             col1, col2 = st.columns(2)
             with col1:
                 filter_cluster = st.selectbox(
@@ -774,15 +770,12 @@ def show_ai_assist_interface(backend):
             if st.button("Generate Move Suggestions", key="ft_ai_moves_btn"):
                 st.session_state["exp_ai_assist_open"] = True
                 with st.spinner("Analyzing entries..."):
-                    # Get entries to analyze
                     all_entries = backend.getAllEntries()
                     entries_to_analyze = []
                     
                     for eid, entry in all_entries.items():
-                        # Filter by cluster if specified
                         if filter_cluster != "All clusters" and entry.get("clusterID") != filter_cluster:
                             continue
-                        # Filter by confidence
                         if entry.get("probability", 0) < min_confidence:
                             continue
                         entries_to_analyze.append(eid)
@@ -791,21 +784,21 @@ def show_ai_assist_interface(backend):
                         st.warning("No entries match the filter criteria.")
                     else:
                         try:
-                            suggestions = llm_wrapper.suggest_entry_moves(entries_to_analyze[:20])  # Limit to 20 entries
+                            suggestions = llm_wrapper.suggest_entry_moves(entries_to_analyze[:20])
                             if suggestions:
                                 st.session_state.ft_ai_suggestions = suggestions
                                 st.session_state.ft_ai_operation_type = "moves"
-                                st.success(f"✅ Generated {len(suggestions)} move suggestions successfully!")
+                                st.success(f"✅ Generated {len(suggestions)} move suggestions!")
                             else:
                                 st.error("Failed to generate move suggestions.")
                         except Exception as e:
                             st.error(f"Error: {str(e)}")
             
-            # Show suggestions if available
+            # Show suggestions
             if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "moves":
                 applied = llm_wrapper.show_suggestions(st.session_state.ft_ai_suggestions, "moves")
                 if applied > 0:
-                    st.success(f"Applied {applied} move changes!")
+                    st.success(f"Applied {applied} moves!")
                     save_finetuning_results_to_session(backend)
                     st.rerun()
 
@@ -821,17 +814,17 @@ def show_ai_assist_interface(backend):
                             st.session_state.ft_ai_operation_type = "operations"
                             merges = len(suggestions.get("merges", []))
                             splits = len(suggestions.get("splits", []))
-                            st.success(f"✅ Generated {merges} merge and {splits} split suggestions successfully!")
+                            st.success(f"✅ Generated {merges} merge and {splits} split suggestions!")
                         else:
                             st.error("Failed to generate operation suggestions.")
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
             
-            # Show suggestions if available
+            # Show suggestions
             if "ft_ai_suggestions" in st.session_state and st.session_state.ft_ai_operation_type == "operations":
                 applied = llm_wrapper.show_suggestions(st.session_state.ft_ai_suggestions, "operations")
                 if applied > 0:
-                    st.success(f"Applied {applied} operation changes!")
+                    st.success(f"Applied {applied} operations!")
                     save_finetuning_results_to_session(backend)
                     st.rerun()
 
@@ -847,11 +840,16 @@ def show_ai_assist_interface(backend):
             if st.button("Ask AI", key="ft_ai_query_btn"):
                 st.session_state["exp_ai_assist_open"] = True
                 ctx = llm_wrapper.build_context()
-                answer = callLLM(prompt, context=ctx, temperature=temperature, max_tokens=500)
+                # Use session temperature and max_tokens
+                answer = llm_wrapper.callLLM(
+                    prompt, 
+                    context=ctx, 
+                    temperature=temperature, 
+                    max_tokens=max_tokens
+                )
                 if answer:
                     st.markdown("**AI Suggestion:**")
                     st.write(answer)
-
 
 def _cid_to_int(cid) -> int:
     if isinstance(cid, int):
