@@ -3,8 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-# ignore log files
+# ============================================================================
+# LOGS & RUNTIME DATA (DON'T COMMIT)
+# ============================================================================
+logs/
 *.log
+*.log.*
 
 # C extensions
 *.so
@@ -59,7 +63,6 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -208,3 +211,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ============================================================================
+# STREAMLIT SPECIFIC
+# ============================================================================
+.streamlit/secrets.toml
+
+# ============================================================================
+# CLUSTERY SPECIFIC - DATA FILES
+# ============================================================================
+# User uploads and temporary files
+uploads/
+tmp*.csv
+temp*.csv
+
+# Large datasets (if any)
+data/raw/
+data/processed/
