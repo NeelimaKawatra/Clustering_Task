@@ -306,11 +306,18 @@ def create_sidebar_navigation():
                 pass
         
         # 5. Results - Accessible if finetuning is visited
+        
         finetuning_ever_visited = st.session_state.get("finetuning_ever_visited", False)
         results_ever_visited = st.session_state.get("results_ever_visited", False)
-        completion_indicator = "✅" if results_ever_visited else "⭕"
+
+        # ✅ Check CURRENT completion status (same as other tabs)
+        current_results_complete = st.session_state.get('tab_results_complete', False)
+
+        # ✅ Use same indicator pattern: checkmark or circle
+        completion_indicator = "✅" if current_results_complete else "⭕"
+
         is_accessible = finetuning_ever_visited
-        
+
         if is_accessible:
             button_style = "primary" if st.session_state.current_page == "results" else "secondary"
             if st.button(f"{completion_indicator} Results", 
@@ -318,6 +325,12 @@ def create_sidebar_navigation():
                         use_container_width=True,
                         key="nav_results"):
                 st.session_state["results_ever_visited"] = True
+                
+                # ✅ Mark as complete when visiting (like other tabs)
+                st.session_state.tab_results_complete = True
+                if 'permanent_progress' in st.session_state:
+                    st.session_state.permanent_progress['results'] = True
+                
                 st.session_state.current_page = "results"
                 st.rerun()
         else:
@@ -327,7 +340,6 @@ def create_sidebar_navigation():
                         key="nav_results",
                         disabled=True):
                 pass
-        
         st.markdown("---")
         
         # 6. LLM Settings - Always accessible

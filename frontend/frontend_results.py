@@ -1,3 +1,4 @@
+# frontend/frontend_results.py
 import streamlit as st
 
 def tab_results(backend_available):
@@ -10,6 +11,20 @@ def tab_results(backend_available):
             "tab_visit",
             {"tab_name": "results"}
         )
+
+    # # ✅ NEW: Mark Results tab as complete when visited
+    # # (User has reviewed the results)
+    # st.session_state.tab_results_complete = True
+    # st.session_state.permanent_progress['results'] = True
+    
+    # ✅ SIMPLE: Always rebuild results from backend if fine-tuning is active
+    # This ensures Results tab ALWAYS shows latest state automatically
+    if st.session_state.get("finetuning_initialized"):
+        from backend.finetuning_backend import get_finetuning_backend
+        from frontend.frontend_finetuning import build_finetuning_results_snapshot
+        
+        backend_ft = get_finetuning_backend()
+        st.session_state.finetuning_results = build_finetuning_results_snapshot(backend_ft)
     
     # Check prerequisites first
     if not st.session_state.get('tab_data_loading_complete', False):
@@ -35,12 +50,18 @@ def tab_results(backend_available):
     # Prefer Fine-tuning snapshot if available; else use original clustering results
     results = st.session_state.get("finetuning_results") or st.session_state.clustering_results
     stats = results["statistics"]
-
-    # confidence = results["confidence_analysis"]  # COMMENTED OUT: No longer showing confidence scores
     performance = results["performance"]
     
     # Results overview
     st.subheader("📈 Overview")
+    
+    # Show current results status
+    col_status, col_spacer = st.columns([1, 1])
+    with col_status:
+        if st.session_state.get("finetuning_initialized"):
+            st.info("📝 Showing fine-tuned results")
+        else:
+            st.caption("📊 Showing original clustering results")
     
     # Calculate per-cluster confidence
     def calculate_per_cluster_confidence(results_data):
@@ -77,35 +98,10 @@ def tab_results(backend_available):
     with col4:
         st.metric("📈 Success Rate", f"{stats['success_rate']:.1f}%")
     
-    """
-    if st.session_state.get('finetuning_results'):
-        from backend.finetuning_backend import get_finetuning_backend
-        backend = get_finetuning_backend()
-        
-        if backend.initialized:
-            modification_summary = backend.getModificationSummary()
-            
-            st.subheader("🧩 Fine-tuning Summary")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                manual_clusters = modification_summary.get("manual_clusters_created", 0)
-                st.metric("🆕 Manual Clusters Created", manual_clusters)
-            
-            with col2:
-                merged_clusters = modification_summary.get("clusters_merged", 0)
-                st.metric("🔄 Clusters Merged", merged_clusters)
-            
-            with col3:
-                modification_pct = modification_summary.get("modification_percentage", 0)
-                st.metric("📝 Entries Modified", f"{modification_pct:.1f}%")
-    """
-    #######################################################
-    #st.subheader("📝 Cluster Details")
-    #######################################################
-
+    # Get cluster details from backend
     cluster_details = st.session_state.backend.get_cluster_details(results, st.session_state.session_id)
 
+    # Render cluster details
     def _render_cluster(cid: int, d: dict):
         keywords = d.get("keywords") or []
         name = keywords[0] if keywords else (f"cluster_{cid}" if cid != -1 else "Outliers")
@@ -118,32 +114,25 @@ def tab_results(backend_available):
                 st.write("**📄 Sample Text Entries:**")
                 sample_texts = d.get("top_texts", [])
                 if sample_texts:
-                    for i, (text, _) in enumerate(sample_texts[:5], 1):  # Ignore confidence score
+                    for i, (text, _) in enumerate(sample_texts[:5], 1):
                         short = text[:150] + ("..." if len(text) > 150 else "")
                         st.write(f"**{i}.** {short}")
                 else:
-                    # Fallback to all_texts if top_texts not available
                     all_texts = d.get("all_texts", [])
                     for i, text in enumerate(all_texts[:5], 1):
                         short = text[:150] + ("..." if len(text) > 150 else "")
                         st.write(f"**{i}.** {short}")
 
             with col2:
-                # Show per-cluster confidence 
                 avg_confidence = d.get('avg_confidence', 0.0)
                 st.metric("Cluster Confidence", f"{avg_confidence:.2f}")
-                # st.metric("High Confidence", d.get("high_confidence_count", 0))
-                
-                # Show keywords if available
-                #if keywords:
-                #    st.write("**Keywords:**")
-                #    for keyword in keywords[:3]:
-                #        st.write(f"• {keyword}")
 
+    # Render regular clusters
     regular_ids = sorted([cid for cid in cluster_details.keys() if cid != -1])
     for cid in regular_ids:
         _render_cluster(cid, cluster_details[cid])
 
+    # Render outliers if present
     if -1 in cluster_details and cluster_details[-1].get("size", 0) > 0:
         _render_cluster(-1, cluster_details[-1])
     
@@ -194,13 +183,8 @@ def tab_results(backend_available):
             st.write("• processed_text: Text after preprocessing steps")
             st.write("• cluster_id: Assigned cluster number (-1 = outlier)")
             st.write("• cluster_label: Descriptive cluster name based on keywords")
-            
-            # COMMENTED OUT: Confidence score descriptions
             st.write("• confidence_score: Confidence score of cluster assignment (0-1)")
             st.write("• confidence_level: High, Medium, or Low based on confidence score")
-            
-            # Note about confidence scores being temporarily hidden
-            #st.info("ℹ️ **Note:** Confidence scores are temporarily hidden as they reflect original clustering and don't account for fine-tuning modifications.")
 
     col1, col2, col3 = st.columns(3)
 
@@ -211,7 +195,7 @@ def tab_results(backend_available):
             data=csv_data,
             file_name=f"clustering_results{filename_suffix}.csv",
             mime="text/csv",
-            width="stretch"
+            use_container_width=True
         ):
             st.session_state.backend.track_activity(
                 st.session_state.session_id,
@@ -238,7 +222,7 @@ def tab_results(backend_available):
             summary_report,
             "clustering_summary.txt",
             "text/plain",
-            width="stretch"
+            use_container_width=True
         ):
             st.session_state.backend.track_activity(st.session_state.session_id, "export", {
                 "export_type": "summary_report",
@@ -246,12 +230,11 @@ def tab_results(backend_available):
             })
 
     with col3:
-        if st.button("🔄 Start New Analysis", width="stretch"):
+        if st.button("🔄 Start New Analysis", use_container_width=True):
             from utils.session_state import reset_analysis
             reset_analysis()
             st.success("Ready for new analysis! Go to Data Loading tab.")
             st.rerun()
-    
     
     # Performance metrics
     st.markdown("---")

@@ -1,4 +1,4 @@
-# utils/session_state.py - Updated with LLM configuration support
+# utils/session_state.py - Updated with LLM configuration support and fine-tuning validation
 import streamlit as st
 import time
 
@@ -59,6 +59,13 @@ def initialize_session_state(backend_available=True):
     if 'finetuning_ever_visited' not in st.session_state:
         st.session_state.finetuning_ever_visited = False
     
+    # # ✅ NEW: Track fine-tuning changes and validation
+    # if 'finetuning_changes_made' not in st.session_state:
+    #     st.session_state.finetuning_changes_made = False
+    
+    # if 'results_valid_after_finetuning' not in st.session_state:
+    #     st.session_state.results_valid_after_finetuning = False
+    
     # Tab completion status
     if 'tab_data_loading_complete' not in st.session_state:
         st.session_state.tab_data_loading_complete = False
@@ -68,6 +75,10 @@ def initialize_session_state(backend_available=True):
     
     if 'tab_clustering_complete' not in st.session_state:
         st.session_state.tab_clustering_complete = False
+
+    # ✅ ADD THIS NEW FLAG:
+    if 'tab_results_complete' not in st.session_state:
+        st.session_state.tab_results_complete = False  # Default False 
     
     # Processing tracking
     if 'preprocessing_tracked' not in st.session_state:
@@ -88,7 +99,7 @@ def initialize_session_state(backend_available=True):
     if 'session_id' not in st.session_state:
         st.session_state.session_id = f"user_{int(time.time())}"
     
-    # LLM Configuration (NEW)
+    # LLM Configuration
     if 'llm_config' not in st.session_state:
         st.session_state.llm_config = {
             'provider': 'mock',
@@ -129,7 +140,8 @@ def initialize_session_state(backend_available=True):
         st.session_state.permanent_progress = {
             'data_loading': False,
             'preprocessing': False,
-            'clustering': False
+            'clustering': False,
+            'results': True  # ✅ ADD THIS
         }
 
 

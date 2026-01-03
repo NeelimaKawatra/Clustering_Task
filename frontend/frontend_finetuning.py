@@ -875,9 +875,17 @@ def build_finetuning_results_snapshot(backend) -> dict:
 
 
 def save_finetuning_results_to_session(backend) -> None:
+    """
+    Save fine-tuning results to session and mark as changed.
+    This flags that Results tab needs to reload.
+    """
+    
+    # Build fresh snapshot
     st.session_state.finetuning_results = build_finetuning_results_snapshot(backend)
-
-
+    
+    # ✅ Mark Results tab as incomplete - user needs to review updated results
+    st.session_state.tab_results_complete = False
+    st.session_state.permanent_progress['results'] = False
 # =============================================================================
 # NEW: Cursor-like Review UX Components
 # =============================================================================
