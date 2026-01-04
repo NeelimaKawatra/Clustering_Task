@@ -640,6 +640,22 @@ def show_ai_assist_interface(backend):
     """AI assist with Cursor-like review UX for suggestions"""
     
     st.markdown("---")
+
+    # ✅ ADD THIS NEW SECTION FIRST
+    st.markdown("### 🤖 AI-Powered Fine-tuning Assistant")
+    
+    with st.expander("ℹ️ What can AI Assist do?", expanded=False):
+        st.markdown("""
+        **AI can help you:**
+        - 🏷️ **Name clusters** based on their content
+        - 🔄 **Move entries** to better-fitting clusters  
+        - 🔧 **Merge/split** clusters for better organization
+        
+        **Cost:** Mock (free) • GPT-4o-mini ($0.01-0.05) • GPT-4o (10x more)
+        
+        💡 Configure LLM Settings first, then generate suggestions below.
+        """)
+    
     
     # Import check function
     from frontend.frontend_llm_settings import check_llm_configuration
@@ -1413,27 +1429,46 @@ class LLMWrapper:
         return json.dumps(suggestions)
 
     def _mock_entry_moves_response(self, context) -> str:
-        """Generate mock entry move suggestions."""
+        """Generate mock entry move suggestions using REAL entry IDs."""
+        import json
+        
         clusters_info = context.get("clusters", [])
-        if not clusters_info:
+        if not clusters_info or len(clusters_info) < 2:
             return json.dumps([])
         
-        # Mock some moves between clusters
         moves = []
         cluster_ids = [c['id'] for c in clusters_info]
         
-        # Generate 2-3 mock moves
-        for i in range(min(3, len(cluster_ids))):
-            source = cluster_ids[i % len(cluster_ids)]
-            target = cluster_ids[(i + 1) % len(cluster_ids)]
-            if source != target:
-                moves.append({
-                    "entry_id": f"entry_{i+1:03d}",
-                    "target_cluster": target,
-                    "reason": f"Better semantic fit with {target}"
-                })
-        
-        import json
+        # ✅ FIX: Get REAL entry IDs from backend
+        if self.backend:
+            try:
+                all_entries = self.backend.getAllEntries()
+                all_clusters = self.backend.getAllClusters()
+                
+                if not all_entries or len(all_entries) < 2:
+                    return json.dumps([])
+                
+                # Get up to 3 REAL entry IDs
+                entry_ids = list(all_entries.keys())[:min(3, len(all_entries))]
+                
+                # Generate moves using REAL entry IDs and cluster IDs
+                for i, eid in enumerate(entry_ids):
+                    entry = all_entries[eid]
+                    current_cluster = entry.get("clusterID")
+                    
+                    # Find a different cluster to move to
+                    available_clusters = [cid for cid in cluster_ids if cid != current_cluster]
+                    if available_clusters:
+                        target = available_clusters[i % len(available_clusters)]
+                        moves.append({
+                            "entry_id": str(eid),  # ✅ Real ID
+                            "target_cluster": str(target),  # ✅ Real cluster
+                            "reason": f"Better semantic fit with {all_clusters[target]['cluster_name']}"
+                        })
+            except Exception as e:
+                print(f"Error generating mock moves: {e}")
+                return json.dumps([])
+    
         return json.dumps(moves)
 
     def _mock_cluster_operations_response(self, context) -> str:
