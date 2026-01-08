@@ -16,6 +16,7 @@ class FineTuningBackend:
         self.entry_to_cluster: Dict[str, str] = {}
         self.next_cluster_id = 0
         self.initialized = False
+        self.change_counter = 0  # NEW: Track changes
     
     def reset(self):
         """Reset the backend to uninitialized state."""
@@ -24,6 +25,7 @@ class FineTuningBackend:
         self.entry_to_cluster.clear()
         self.next_cluster_id = 0
         self.initialized = False
+        self.change_counter = 0  # ✅ NEW: Reset counter on reset
 
     def initialize_from_clustering_results(self, clustering_results: Dict[str, Any],
                                            original_data: pd.DataFrame,
@@ -269,7 +271,15 @@ class FineTuningBackend:
             self.clusters[target_clusterID]["entry_ids"].append(entryID)
         
         target_name = self.clusters[target_clusterID]['cluster_name']
+
+        # ✅ NEW: Increment change counter
+        self.change_counter += 1
+
         return True, f"Moved entry to {target_name}"
+
+        if success:
+            self.change_counter += 1  # Increment on change
+        return success, message
 
     def mergeClusters(self, clusterID1: str, clusterID2: str, new_name: str = None) -> Tuple[bool, str]:
         """Merge two clusters into one."""
@@ -330,8 +340,15 @@ class FineTuningBackend:
         # Remove old clusters
         del self.clusters[clusterID1]
         del self.clusters[clusterID2]
+
+         # ✅ NEW: Increment change counter
+        self.change_counter += 1
         
         return True, final_name
+    
+        if success:
+            self.change_counter += 1  # Increment on change
+        return success, message
 
     def changeClusterName(self, clusterID: str, new_name: str) -> Tuple[bool, str]:
         """Change the name of a cluster."""
@@ -352,6 +369,9 @@ class FineTuningBackend:
         
         old_name = self.clusters[clusterID]["cluster_name"]
         self.clusters[clusterID]["cluster_name"] = new_name
+
+        # ✅ NEW: Increment change counter
+        self.change_counter += 1
         
         return True, f"Renamed '{old_name}' to '{new_name}'"
 
@@ -380,7 +400,8 @@ class FineTuningBackend:
             "entry_ids": [],
             "created_manually": True
         }
-        
+        # ✅ NEW: Increment change counter
+        self.change_counter += 1
         return True, name
 
     def deleteCluster(self, clusterID: str) -> Tuple[bool, str]:
@@ -417,6 +438,9 @@ class FineTuningBackend:
         
         # Delete the cluster
         del self.clusters[clusterID]
+
+        # ✅ NEW: Increment change counter
+        self.change_counter += 1
         
         return True, f"Deleted '{cluster_name}' and moved {len(entries_to_move)} entries to Outliers"
 

@@ -153,6 +153,10 @@ def show_cluster_management_interface(backend):
         all_clusters = backend.getAllClusters()
         all_entries = backend.getAllEntries()
         modification_summary = backend.getModificationSummary()
+
+        # ✅ NEW: Get change counter for real-time sync
+        change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
+
         col1, col2, col3, col4 = st.columns(4)
         with col1: st.metric("Total Clusters", len(all_clusters))
         with col2: st.metric("Total Text Entries", len(all_entries))
@@ -327,6 +331,9 @@ def show_drag_drop_board(backend):
     if not clusters:
         st.info("No clusters to display.")
         return
+
+    # ✅ NEW: Get change counter for real-time sync
+    change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
 
     # Initialize expander state - open by default on first visit
     if not st.session_state.get("dnd_filters_initialized", False):
@@ -538,6 +545,9 @@ def show_entry_management_interface(backend):
         all_entries = backend.getAllEntries()
         all_clusters = backend.getAllClusters()
 
+        # ✅ NEW: Get change counter for real-time sync
+        change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
+
         if not all_entries:
             st.info("No entries available.")
             return
@@ -567,7 +577,8 @@ def show_entry_management_interface(backend):
                     selected_entry = st.selectbox(
                         "Matching entries",
                         matching_entries,
-                        key="matching_entries_box",
+                        key=f"matching_entries_box_{change_count}",  # ✅ Dynamic key
+                        #key="matching_entries_box",
                         format_func=lambda eid: f"{all_entries[eid]['subjectID']}: {all_entries[eid]['entry_text']}",
                         on_change=_keep_entry_open,
                     )
@@ -578,7 +589,8 @@ def show_entry_management_interface(backend):
                 selected_entry = st.selectbox(
                     "Select entry",
                     entry_ids,
-                    key="all_entries_box",
+                    key=f"all_entries_box_{change_count}",  # ✅ Dynamic key
+                    #key="all_entries_box",
                     format_func=lambda eid: f"{all_entries[eid]['subjectID']}: {all_entries[eid]['entry_text']}",
                     on_change=_keep_entry_open,
                 )
@@ -615,14 +627,16 @@ def show_entry_management_interface(backend):
                         cluster_options,
                         index=current_index,
                         format_func=lambda x: f"{all_clusters[x]['cluster_name']} ({len(all_clusters[x]['entry_ids'])} entries)",
-                        key=f"move_{selected_entry}",
+                        #key=f"move_{selected_entry}",
+                        key=f"move_{selected_entry}_{change_count}",  # ✅ Dynamic key
                         on_change=_keep_entry_open,
                     )
 
                     if target_cluster != current_cluster:
                         if st.button(
                             f"Move to {all_clusters[target_cluster]['cluster_name']}",
-                            key=f"move_btn_{selected_entry}",
+                            #key=f"move_btn_{selected_entry}",
+                            key=f"move_btn_{selected_entry}_{change_count}",  # ✅ Dynamic key
                         ):
                             success, message = backend.moveEntry(selected_entry, target_cluster)
                             if success:
@@ -1013,6 +1027,10 @@ def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str
     """
     st.markdown("#### 📝 Cluster Name Suggestions")
     st.caption("Review each suggestion and choose which to apply")
+
+
+    # ✅ NEW: Get change counter for button keys
+    change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
     
     # Track selections
     selection_key = f"name_selections_{session_id}"
@@ -1054,7 +1072,7 @@ def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str
             col1, col2, col3 = st.columns([3, 1, 1])
             
             with col2:
-                accept_key = f"accept_name_{session_id}_{cluster_id}"
+                accept_key = f"accept_name_{session_id}_{cluster_id}_{change_count}"  # ✅ Add version
                 if st.button("✅ Accept", key=accept_key, use_container_width=True):
                     success, msg = backend.changeClusterName(cluster_id, suggested_name)
                     if success:
@@ -1068,7 +1086,7 @@ def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str
                         st.error(f"❌ {msg}")
             
             with col3:
-                reject_key = f"reject_name_{session_id}_{cluster_id}"
+                reject_key = f"reject_name_{session_id}_{cluster_id}_{change_count}"  # ✅ Add version
                 if st.button("❌ Reject", key=reject_key, use_container_width=True):
                     st.session_state[selection_key][cluster_id] = "rejected"
                     st.info(f"Rejected suggestion for {current_name}")
@@ -1082,6 +1100,9 @@ def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], bac
     """
     st.markdown("#### 🔄 Entry Move Suggestions")
     st.caption("Review each move and choose which to apply")
+
+    # ✅ NEW: Get change counter for button keys
+    change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
     
     selection_key = f"move_selections_{session_id}"
     if selection_key not in st.session_state:
@@ -1133,7 +1154,7 @@ def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], bac
             col1, col2, col3 = st.columns([3, 1, 1])
             
             with col2:
-                accept_key = f"accept_move_{session_id}_{i}"
+                accept_key = f"accept_move_{session_id}_{i}_{change_count}"  # ✅ Add version
                 if st.button("✅ Accept", key=accept_key, use_container_width=True):
                     success, msg = backend.moveEntry(entry_id, target_cluster)
                     if success:
@@ -1147,7 +1168,7 @@ def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], bac
                         st.error(f"❌ {msg}")
             
             with col3:
-                reject_key = f"reject_move_{session_id}_{i}"
+                reject_key = f"reject_move_{session_id}_{i}_{change_count}"  # ✅ Add version
                 if st.button("❌ Reject", key=reject_key, use_container_width=True):
                     st.session_state[selection_key][entry_id] = "rejected"
                     st.info("Rejected move suggestion")
@@ -1162,6 +1183,9 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
     st.markdown("#### 🔧 Cluster Operation Suggestions")
     st.caption("Review merge and split operations")
     
+    # ✅ NEW: Get change counter for button keys
+    change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
+
     selection_key = f"operation_selections_{session_id}"
     if selection_key not in st.session_state:
         st.session_state[selection_key] = {}
@@ -1218,7 +1242,7 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
                     )
                 
                 with col3:
-                    accept_key = f"accept_merge_{session_id}_{i}"
+                    accept_key = f"accept_merge_{session_id}_{i}_{change_count}"  # ✅ Add version
                     if st.button("✅ Merge", key=accept_key, use_container_width=True):
                         success, result = backend.mergeClusters(cluster1, cluster2, merge_name or None)
                         if success:
@@ -1232,7 +1256,7 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
                             st.error(f"❌ {result}")
                 
                 with col4:
-                    reject_key = f"reject_merge_{session_id}_{i}"
+                    reject_key = f"reject_merge_{session_id}_{i}_{change_count}"  # ✅ Add version
                     if st.button("❌ Reject", key=reject_key, use_container_width=True):
                         st.session_state[selection_key][f"merge_{i}"] = "rejected"
                         st.info("Rejected merge suggestion")

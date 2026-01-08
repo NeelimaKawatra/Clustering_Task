@@ -24,8 +24,18 @@ def tab_results(backend_available):
         from frontend.frontend_finetuning import build_finetuning_results_snapshot
         
         backend_ft = get_finetuning_backend()
-        st.session_state.finetuning_results = build_finetuning_results_snapshot(backend_ft)
-    
+
+        # Check if changes happened
+        last_known_count = st.session_state.get("last_finetuning_change_count", 0)
+        current_count = backend_ft.change_counter if hasattr(backend_ft, 'change_counter') else 0
+        
+        
+        if current_count != last_known_count:
+            # Rebuild results from latest fine-tuning state
+            st.session_state.finetuning_results = build_finetuning_results_snapshot(backend_ft)
+            st.session_state.last_finetuning_change_count = current_count
+
+        
     # Check prerequisites first
     if not st.session_state.get('tab_data_loading_complete', False):
         st.error("Please complete Data Loading first!")
@@ -59,7 +69,10 @@ def tab_results(backend_available):
     col_status, col_spacer = st.columns([1, 1])
     with col_status:
         if st.session_state.get("finetuning_initialized"):
-            st.info("📝 Showing fine-tuned results")
+            from backend.finetuning_backend import get_finetuning_backend
+            backend_ft = get_finetuning_backend()
+            change_count = backend_ft.change_counter if hasattr(backend_ft, 'change_counter') else 0
+            st.info(f"📝 Showing fine-tuned results ({change_count} changes applied)")
         else:
             st.caption("📊 Showing original clustering results")
     
