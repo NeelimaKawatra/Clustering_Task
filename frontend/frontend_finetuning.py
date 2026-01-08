@@ -970,7 +970,11 @@ def show_suggestion_review_panel(session_id: str, backend) -> Dict[str, Any]:
         return _review_entry_move_suggestions(session_id, suggestions, backend)
     elif operation_type == "cluster_operations":
         return _review_cluster_operation_suggestions(session_id, suggestions, backend)
-    
+        # ✅ DEBUG: Log what we got
+        if suggestions:
+            st.write("🔍 DEBUG: Generated suggestions:", suggestions)
+            st.write(f"  - Merges: {len(suggestions.get('merges', []))}")
+            st.write(f"  - Splits: {len(suggestions.get('splits', []))}")
     return {"action": "none", "applied_count": 0}
 
 def _cleanup_suggestion_session(session_id: str):
@@ -1022,14 +1026,12 @@ def _count_suggestions(suggestions: Any, operation_type: str) -> int:
 
 
 def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str], backend) -> Dict[str, Any]:
-    """
-    Review cluster name suggestions with Cursor-like cards.
-    """
+    """Review cluster name suggestions with Cursor-like cards."""
+    
     st.markdown("#### 📝 Cluster Name Suggestions")
     st.caption("Review each suggestion and choose which to apply")
 
-
-    # ✅ NEW: Get change counter for button keys
+    # ✅ Get change counter for button keys
     change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
     
     # Track selections
@@ -1040,7 +1042,40 @@ def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str
     applied_count = 0
     all_clusters = backend.getAllClusters()
     
-    for cluster_id, suggested_name in suggestions.items():
+    # ✅ Filter out already processed suggestions
+    pending_suggestions = {
+        cluster_id: name 
+        for cluster_id, name in suggestions.items()
+        if cluster_id not in st.session_state[selection_key]
+    }
+    
+    # ✅ Check if all suggestions are processed
+    if not pending_suggestions:
+        st.success("✅ All suggestions have been reviewed!")
+        
+        # Show summary
+        accepted = sum(1 for v in st.session_state[selection_key].values() if v == "accepted")
+        rejected = sum(1 for v in st.session_state[selection_key].values() if v == "rejected")
+        
+        st.info(f"📊 Summary: {accepted} accepted, {rejected} rejected")
+        
+        # Clean up session
+        if st.button("🔄 Generate New Suggestions", key=f"regenerate_after_complete_{session_id}"):
+            _cleanup_suggestion_session(session_id)
+            st.rerun()
+        
+        return {"action": "complete", "applied_count": accepted}
+    
+    # ✅ Show progress
+    total_suggestions = len(suggestions)
+    remaining = len(pending_suggestions)
+    processed = total_suggestions - remaining
+    
+    st.progress(processed / total_suggestions)
+    st.caption(f"Progress: {processed}/{total_suggestions} reviewed ({remaining} remaining)")
+    
+    # ✅ Iterate only over pending suggestions
+    for cluster_id, suggested_name in pending_suggestions.items():
         if cluster_id not in all_clusters:
             continue
         
@@ -1072,36 +1107,38 @@ def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str
             col1, col2, col3 = st.columns([3, 1, 1])
             
             with col2:
-                accept_key = f"accept_name_{session_id}_{cluster_id}_{change_count}"  # ✅ Add version
+                accept_key = f"accept_name_{session_id}_{cluster_id}_{change_count}"
                 if st.button("✅ Accept", key=accept_key, use_container_width=True):
                     success, msg = backend.changeClusterName(cluster_id, suggested_name)
                     if success:
+                        # ✅ Mark as accepted (will be filtered out on rerun)
                         st.session_state[selection_key][cluster_id] = "accepted"
                         applied_count += 1
                         st.success(f"✅ Applied: {suggested_name}")
                         save_finetuning_results_to_session(backend)
-                        time.sleep(0.5)
-                        st.rerun()
+                        time.sleep(0.3)
+                        st.rerun()  # Rerun to remove this card
                     else:
                         st.error(f"❌ {msg}")
             
             with col3:
-                reject_key = f"reject_name_{session_id}_{cluster_id}_{change_count}"  # ✅ Add version
+                reject_key = f"reject_name_{session_id}_{cluster_id}_{change_count}"
                 if st.button("❌ Reject", key=reject_key, use_container_width=True):
+                    # ✅ Mark as rejected (will be filtered out on rerun)
                     st.session_state[selection_key][cluster_id] = "rejected"
                     st.info(f"Rejected suggestion for {current_name}")
+                    time.sleep(0.3)
+                    st.rerun()  # Rerun to remove this card
     
     return {"action": "partial", "applied_count": applied_count}
 
-
 def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], backend) -> Dict[str, Any]:
-    """
-    Review entry move suggestions with Cursor-like cards.
-    """
+    """Review entry move suggestions with Cursor-like cards."""
+    
     st.markdown("#### 🔄 Entry Move Suggestions")
     st.caption("Review each move and choose which to apply")
 
-    # ✅ NEW: Get change counter for button keys
+    # ✅ Get change counter for button keys
     change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
     
     selection_key = f"move_selections_{session_id}"
@@ -1112,7 +1149,39 @@ def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], bac
     all_clusters = backend.getAllClusters()
     all_entries = backend.getAllEntries()
     
-    for i, move in enumerate(suggestions):
+    # ✅ NEW: Filter out already processed suggestions
+    pending_suggestions = [
+        (i, move) for i, move in enumerate(suggestions)
+        if i not in st.session_state[selection_key]
+    ]
+    
+    # ✅ NEW: Check if all suggestions are processed
+    if not pending_suggestions:
+        st.success("✅ All suggestions have been reviewed!")
+        
+        # Show summary
+        accepted = sum(1 for v in st.session_state[selection_key].values() if v == "accepted")
+        rejected = sum(1 for v in st.session_state[selection_key].values() if v == "rejected")
+        
+        st.info(f"📊 Summary: {accepted} accepted, {rejected} rejected")
+        
+        # Clean up session
+        if st.button("🔄 Generate New Suggestions", key=f"regenerate_after_complete_{session_id}"):
+            _cleanup_suggestion_session(session_id)
+            st.rerun()
+        
+        return {"action": "complete", "applied_count": accepted}
+    
+    # ✅ Show progress
+    total_suggestions = len(suggestions)
+    remaining = len(pending_suggestions)
+    processed = total_suggestions - remaining
+    
+    st.progress(processed / total_suggestions)
+    st.caption(f"Progress: {processed}/{total_suggestions} reviewed ({remaining} remaining)")
+    
+    # ✅ Iterate only over pending suggestions
+    for i, move in pending_suggestions:
         entry_id = move.get("entry_id")
         target_cluster = move.get("target_cluster")
         reason = move.get("reason", "No reason provided")
@@ -1154,36 +1223,39 @@ def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], bac
             col1, col2, col3 = st.columns([3, 1, 1])
             
             with col2:
-                accept_key = f"accept_move_{session_id}_{i}_{change_count}"  # ✅ Add version
+                accept_key = f"accept_move_{session_id}_{i}_{change_count}"
                 if st.button("✅ Accept", key=accept_key, use_container_width=True):
                     success, msg = backend.moveEntry(entry_id, target_cluster)
                     if success:
-                        st.session_state[selection_key][entry_id] = "accepted"
+                        # ✅ Mark as accepted
+                        st.session_state[selection_key][i] = "accepted"
                         applied_count += 1
                         st.success(f"✅ Moved entry to {target_cluster_name}")
                         save_finetuning_results_to_session(backend)
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                         st.rerun()
                     else:
                         st.error(f"❌ {msg}")
             
             with col3:
-                reject_key = f"reject_move_{session_id}_{i}_{change_count}"  # ✅ Add version
+                reject_key = f"reject_move_{session_id}_{i}_{change_count}"
                 if st.button("❌ Reject", key=reject_key, use_container_width=True):
-                    st.session_state[selection_key][entry_id] = "rejected"
+                    # ✅ Mark as rejected
+                    st.session_state[selection_key][i] = "rejected"
                     st.info("Rejected move suggestion")
+                    time.sleep(0.3)
+                    st.rerun()
     
     return {"action": "partial", "applied_count": applied_count}
 
 
 def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, backend) -> Dict[str, Any]:
-    """
-    Review cluster merge/split suggestions with Cursor-like cards.
-    """
+    """Review cluster merge/split suggestions with Cursor-like cards."""
+    
     st.markdown("#### 🔧 Cluster Operation Suggestions")
     st.caption("Review merge and split operations")
     
-    # ✅ NEW: Get change counter for button keys
+    # ✅ Get change counter for button keys
     change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
 
     selection_key = f"operation_selections_{session_id}"
@@ -1193,12 +1265,53 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
     applied_count = 0
     all_clusters = backend.getAllClusters()
     
-    # Merges
+    # ✅ NEW: Get merges and splits
     merges = suggestions.get("merges", [])
-    if merges:
+    splits = suggestions.get("splits", [])
+    
+    # ✅ NEW: Filter out already processed merge suggestions
+    pending_merges = [
+        (i, merge) for i, merge in enumerate(merges)
+        if f"merge_{i}" not in st.session_state[selection_key]
+    ]
+    
+    # ✅ NEW: Filter out already processed split suggestions
+    pending_splits = [
+        (i, split) for i, split in enumerate(splits)
+        if f"split_{i}" not in st.session_state[selection_key]
+    ]
+    
+    total_suggestions = len(merges) + len(splits)
+    total_pending = len(pending_merges) + len(pending_splits)
+    
+    # ✅ NEW: Check if all suggestions are processed
+    if total_pending == 0 and total_suggestions > 0:
+        st.success("✅ All suggestions have been reviewed!")
+        
+        # Show summary
+        accepted = sum(1 for v in st.session_state[selection_key].values() if v == "accepted")
+        rejected = sum(1 for v in st.session_state[selection_key].values() if v == "rejected")
+        
+        st.info(f"📊 Summary: {accepted} accepted, {rejected} rejected")
+        
+        # Clean up session
+        if st.button("🔄 Generate New Suggestions", key=f"regenerate_after_complete_{session_id}"):
+            _cleanup_suggestion_session(session_id)
+            st.rerun()
+        
+        return {"action": "complete", "applied_count": accepted}
+    
+    # ✅ NEW: Show progress if there are suggestions
+    if total_suggestions > 0:
+        processed = total_suggestions - total_pending
+        st.progress(processed / total_suggestions)
+        st.caption(f"Progress: {processed}/{total_suggestions} reviewed ({total_pending} remaining)")
+    
+    # ✅ MERGES: Only show pending merge suggestions
+    if pending_merges:
         st.markdown("**🔗 Merge Suggestions**")
         
-        for i, merge in enumerate(merges):
+        for i, merge in pending_merges:
             cluster1 = merge.get("cluster1")
             cluster2 = merge.get("cluster2")
             reason = merge.get("reason", "No reason provided")
@@ -1237,42 +1350,49 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
                 with col2:
                     merge_name = st.text_input(
                         "New name (optional)",
-                        key=f"merge_name_{session_id}_{i}",
+                        key=f"merge_name_{session_id}_{i}_{change_count}",
                         placeholder="Auto-generated"
                     )
                 
                 with col3:
-                    accept_key = f"accept_merge_{session_id}_{i}_{change_count}"  # ✅ Add version
+                    accept_key = f"accept_merge_{session_id}_{i}_{change_count}"
                     if st.button("✅ Merge", key=accept_key, use_container_width=True):
                         success, result = backend.mergeClusters(cluster1, cluster2, merge_name or None)
                         if success:
+                            # ✅ Mark as accepted
                             st.session_state[selection_key][f"merge_{i}"] = "accepted"
                             applied_count += 1
                             st.success(f"✅ Merged into: {result}")
                             save_finetuning_results_to_session(backend)
-                            time.sleep(0.5)
+                            time.sleep(0.3)
                             st.rerun()
                         else:
                             st.error(f"❌ {result}")
                 
                 with col4:
-                    reject_key = f"reject_merge_{session_id}_{i}_{change_count}"  # ✅ Add version
+                    reject_key = f"reject_merge_{session_id}_{i}_{change_count}"
                     if st.button("❌ Reject", key=reject_key, use_container_width=True):
+                        # ✅ Mark as rejected
                         st.session_state[selection_key][f"merge_{i}"] = "rejected"
                         st.info("Rejected merge suggestion")
+                        time.sleep(0.3)
+                        st.rerun()
     
-    # Splits
-    splits = suggestions.get("splits", [])
-    if splits:
+    # ✅ SPLITS: Only show pending split suggestions
+    if pending_splits:
         st.markdown("**✂️ Split Suggestions**")
         
-        for i, split in enumerate(splits):
+        for i, split in pending_splits:
             cluster = split.get("cluster")
             reason = split.get("reason", "No reason provided")
             
-            if cluster in all_clusters:
-                cluster_name = all_clusters[cluster]["cluster_name"]
-                
+            if cluster not in all_clusters:
+                continue
+            
+            cluster_name = all_clusters[cluster]["cluster_name"]
+            
+            # Cursor-style card
+            with st.container():
                 st.markdown(f"""
                 <div style="
                     border: 1px solid #e0e0e0;
@@ -1294,6 +1414,26 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns([3, 1, 1])
+                
+                with col2:
+                    acknowledge_key = f"acknowledge_split_{session_id}_{i}_{change_count}"
+                    if st.button("👍 Acknowledge", key=acknowledge_key, use_container_width=True):
+                        # ✅ Mark as acknowledged (splits are informational)
+                        st.session_state[selection_key][f"split_{i}"] = "acknowledged"
+                        st.info(f"Acknowledged split suggestion for {cluster_name}")
+                        time.sleep(0.3)
+                        st.rerun()
+                
+                with col3:
+                    reject_split_key = f"reject_split_{session_id}_{i}_{change_count}"
+                    if st.button("❌ Dismiss", key=reject_split_key, use_container_width=True):
+                        # ✅ Mark as rejected
+                        st.session_state[selection_key][f"split_{i}"] = "rejected"
+                        st.info("Dismissed split suggestion")
+                        time.sleep(0.3)
+                        st.rerun()
     
     return {"action": "partial", "applied_count": applied_count}
 
@@ -1435,6 +1575,8 @@ class LLMWrapper:
 
     def _mock_cluster_names_response(self, context) -> str:
         """Generate mock cluster name suggestions."""
+        import json
+        
         clusters_info = context.get("clusters", [])
         suggestions = {}
         
@@ -1449,7 +1591,6 @@ class LLMWrapper:
                 name = f"Topic {cluster.get('name', cid)}"
             suggestions[cid] = name
         
-        import json
         return json.dumps(suggestions)
 
     def _mock_entry_moves_response(self, context) -> str:
@@ -1496,31 +1637,55 @@ class LLMWrapper:
         return json.dumps(moves)
 
     def _mock_cluster_operations_response(self, context) -> str:
-        """Generate mock cluster merge/split suggestions."""
+        """Generate mock cluster merge/split suggestions with REAL cluster IDs."""
+        import json
+        
         clusters_info = context.get("clusters", [])
+        
         if len(clusters_info) < 2:
             return json.dumps({"merges": [], "splits": []})
         
         operations = {"merges": [], "splits": []}
         
-        # Suggest 1-2 merges if we have enough clusters
-        if len(clusters_info) >= 2:
+        # ✅ Generate merge suggestions for similar-sized or small clusters
+        # Strategy 1: Merge smallest clusters (likely need consolidation)
+        sorted_clusters = sorted(clusters_info, key=lambda c: c.get('count', 0))
+        
+        if len(sorted_clusters) >= 2:
+            # Suggest merging the two smallest clusters
+            cluster1 = sorted_clusters[0]
+            cluster2 = sorted_clusters[1]
+            
             operations["merges"].append({
-                "cluster1": clusters_info[0]['id'],
-                "cluster2": clusters_info[1]['id'],
-                "reason": "Similar themes and content overlap"
+                "cluster1": cluster1['id'],
+                "cluster2": cluster2['id'],
+                "reason": f"Both are small clusters ({cluster1['count']} and {cluster2['count']} items). Merging may improve coherence."
             })
         
-        # Suggest 1 split if cluster has many items
+        # Strategy 2: If there are more clusters, suggest another merge
+        if len(sorted_clusters) >= 4:
+            cluster3 = sorted_clusters[2]
+            cluster4 = sorted_clusters[3]
+            
+            operations["merges"].append({
+                "cluster1": cluster3['id'],
+                "cluster2": cluster4['id'],
+                "reason": f"Similar cluster sizes ({cluster3['count']} and {cluster4['count']} items). Potential theme overlap."
+            })
+        
+        # ✅ Generate split suggestions for large clusters
         for cluster in clusters_info:
-            if cluster['count'] > 10:
+            cluster_count = cluster.get('count', 0)
+            
+            # Suggest split if cluster is significantly larger than average
+            avg_size = sum(c.get('count', 0) for c in clusters_info) / len(clusters_info)
+            
+            if cluster_count > max(10, avg_size * 1.5):
                 operations["splits"].append({
                     "cluster": cluster['id'],
-                    "reason": f"Large cluster ({cluster['count']} items) may contain distinct sub-topics"
+                    "reason": f"Large cluster with {cluster_count} items (avg: {avg_size:.0f}). May contain multiple distinct sub-topics."
                 })
-                break
         
-        import json
         return json.dumps(operations)
 
     def _extract_json(self, text: str):
@@ -1661,42 +1826,65 @@ class LLMWrapper:
             }
             if include_texts:
                 sample_texts = [all_entries[eid]["entry_text"][:200] 
-                              for eid in c["entry_ids"][:max_samples] 
-                              if eid in all_entries]
+                            for eid in c["entry_ids"][:max_samples] 
+                            if eid in all_entries]
                 cluster_data["sample_texts"] = sample_texts
             else:
                 cluster_data["items"] = ["_"] * len(c["entry_ids"])
             cluster_list.append(cluster_data)
         
         return {"clusters": cluster_list}
-    
-    def suggest_cluster_names(self) -> Optional[Dict[str, str]]:
-        """Generate cluster name suggestions."""
+        
+    def suggest_cluster_operations(self) -> Optional[Dict[str, Any]]:
+        """Generate cluster merge/split suggestions."""
         if not self.initialized:
             return None
         
         context = self.build_context(include_texts=True, max_samples=3)
-        prompt = """Analyze the following clusters and suggest better, more descriptive names based on their content. 
-        Return a JSON object with cluster IDs as keys and suggested names as values.
-        
-        Example: {"cluster_0": "Customer Support Issues", "cluster_1": "Product Feedback"}
-        
-        Clusters to analyze:"""
-        
-        # Add cluster context to prompt
         clusters_info = context.get("clusters", [])
-        for cluster in clusters_info:
-            prompt += f"\n- {cluster['id']}: {cluster['name']} ({cluster['count']} items)"
-            if cluster.get("sample_texts"):
-                prompt += f"\n  Sample texts: {'; '.join(cluster['sample_texts'][:3])}"
         
-        response = self.callLLM(prompt, context, temperature=0.3, max_tokens=300)
+        # Build detailed cluster analysis
+        cluster_details = []
+        for cluster in clusters_info:
+            cluster_details.append(
+                f"- {cluster['id']}: '{cluster['name']}' ({cluster['count']} items)\n"
+                f"  Sample texts: {'; '.join(cluster.get('sample_texts', [])[:2])}"
+            )
+        
+        prompt = f"""You are analyzing {len(clusters_info)} text clusters. Your task is to suggest merge and split operations.
+
+    **MERGE CRITERIA:**
+    - Clusters with overlapping themes or similar content
+    - Small clusters (< 5 items) that could be consolidated
+    - Clusters with semantically related sample texts
+
+    **SPLIT CRITERIA:**
+    - Large clusters (> 15 items) that seem to contain multiple distinct topics
+    - Clusters where sample texts show clear thematic diversity
+
+    **Current Clusters:**
+    {chr(10).join(cluster_details)}
+
+    **IMPORTANT:** Return ONLY valid JSON in this exact format (no markdown, no explanation):
+    {{"merges": [{{"cluster1": "cluster_X", "cluster2": "cluster_Y", "reason": "brief reason"}}], "splits": [{{"cluster": "cluster_Z", "reason": "brief reason"}}]}}
+
+    Suggest 1-3 merge operations and 0-2 split operations based on the data above."""
+        
+        response = self.callLLM(prompt, context, temperature=0.4, max_tokens=500)
         if response:
             parsed = self._extract_json(response)
             if parsed and isinstance(parsed, dict):
+                # Validate structure
+                if "merges" not in parsed:
+                    parsed["merges"] = []
+                if "splits" not in parsed:
+                    parsed["splits"] = []
                 return parsed
-        return None
-    
+            else:
+                # Fallback to empty structure if parsing fails
+                return {"merges": [], "splits": []}
+        return {"merges": [], "splits": []}
+
     def suggest_entry_moves(self, entries_to_analyze: List[str]) -> Optional[List[Dict[str, str]]]:
         """Generate entry move suggestions."""
         if not self.initialized or not entries_to_analyze:
@@ -1724,35 +1912,38 @@ class LLMWrapper:
                 return parsed
         return None
     
-    def suggest_cluster_operations(self) -> Optional[Dict[str, Any]]:
-        """Generate cluster merge/split suggestions."""
+    def suggest_cluster_names(self) -> Optional[Dict[str, str]]:
+        """Generate cluster name suggestions."""
         if not self.initialized:
             return None
         
-        context = self.build_context(include_texts=True, max_samples=2)
-        prompt = """Analyze the following clusters and suggest:
-        1. Which clusters should be merged (if any)
-        2. Which clusters should be split (if any)
+        context = self.build_context(include_texts=True, max_samples=3)
         
-        Return JSON: {"merges": [{"cluster1": "cluster_0", "cluster2": "cluster_1", "reason": "Similar themes"}], "splits": [{"cluster": "cluster_2", "reason": "Contains distinct sub-topics"}]}
+        clusters_info = context.get("clusters", [])
+        if not clusters_info:
+            return None
+        
+        prompt = """Analyze the following clusters and suggest better, more descriptive names based on their content. 
+        Return ONLY a JSON object with cluster IDs as keys and suggested names as values.
+        
+        Example: {"cluster_0": "Customer Support Issues", "cluster_1": "Product Feedback"}
         
         Clusters to analyze:"""
         
-        clusters_info = context.get("clusters", [])
+        # Add cluster context to prompt
         for cluster in clusters_info:
             prompt += f"\n- {cluster['id']}: {cluster['name']} ({cluster['count']} items)"
             if cluster.get("sample_texts"):
-                prompt += f"\n  Sample: {'; '.join(cluster['sample_texts'][:2])}"
+                prompt += f"\n  Samples: {'; '.join(cluster['sample_texts'][:2])}"
         
-        response = self.callLLM(prompt, context, temperature=0.5, max_tokens=400)
+        response = self.callLLM(prompt, context, temperature=0.3, max_tokens=300)
+        
         if response:
             parsed = self._extract_json(response)
             if parsed and isinstance(parsed, dict):
                 return parsed
-            else:
-                return {"merges": [], "splits": []}
+        
         return None
-
 
 # Singleton helpers
 _llm_instance: Optional[LLMWrapper] = None

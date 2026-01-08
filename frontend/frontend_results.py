@@ -12,29 +12,21 @@ def tab_results(backend_available):
             {"tab_name": "results"}
         )
 
-    # # ✅ NEW: Mark Results tab as complete when visited
-    # # (User has reviewed the results)
-    # st.session_state.tab_results_complete = True
-    # st.session_state.permanent_progress['results'] = True
-    
-    # ✅ SIMPLE: Always rebuild results from backend if fine-tuning is active
-    # This ensures Results tab ALWAYS shows latest state automatically
+    # ✅ NEW: Auto-reload if fine-tuning changes detected
     if st.session_state.get("finetuning_initialized"):
         from backend.finetuning_backend import get_finetuning_backend
         from frontend.frontend_finetuning import build_finetuning_results_snapshot
         
         backend_ft = get_finetuning_backend()
 
-        # Check if changes happened
+        # Check if changes happened since last visit
         last_known_count = st.session_state.get("last_finetuning_change_count", 0)
         current_count = backend_ft.change_counter if hasattr(backend_ft, 'change_counter') else 0
         
-        
+        # Rebuild snapshot if stale
         if current_count != last_known_count:
-            # Rebuild results from latest fine-tuning state
             st.session_state.finetuning_results = build_finetuning_results_snapshot(backend_ft)
             st.session_state.last_finetuning_change_count = current_count
-
         
     # Check prerequisites first
     if not st.session_state.get('tab_data_loading_complete', False):
@@ -65,7 +57,7 @@ def tab_results(backend_available):
     # Results overview
     st.subheader("📈 Overview")
     
-    # Show current results status
+    # ✅ UPDATED: Show current results status with change counter
     col_status, col_spacer = st.columns([1, 1])
     with col_status:
         if st.session_state.get("finetuning_initialized"):
