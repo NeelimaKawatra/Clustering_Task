@@ -198,17 +198,33 @@ Welcome to Clustery! Start by uploading your data file with text entries.
         st.dataframe(df[cols], width="stretch", hide_index=True)
 
         # quick per-column stats
-        stats_overview = {}
-        for col in df.columns:
-            total = len(df)
-            empty = int(df[col].isna().sum())
-            if is_object_dtype(df[col]) or is_string_dtype(df[col]):
-                empty += int((df[col] == "").sum())
-            non_empty = total - empty
-            col_type = "(Auto-generated)" if col == "entryID" else ("Text" if (is_object_dtype(df[col]) or is_string_dtype(df[col])) else "Non-Text")
-            stats_overview[col] = {"Total Rows": total, "Empty Rows": empty, "Non-Empty Rows": non_empty, "Column Type": col_type}
-        ordered = ["entryID"] + [c for c in stats_overview.keys() if c != "entryID"]
-        st.dataframe(pd.DataFrame(stats_overview)[ordered], width="stretch")
+            # quick per-column stats (Arrow-safe version)
+    stats_overview = {}
+    for col in df.columns:
+        total = len(df)
+        empty = int(df[col].isna().sum())
+        if is_object_dtype(df[col]) or is_string_dtype(df[col]):
+            empty += int((df[col] == "").sum())
+        non_empty = total - empty
+        
+        # ✅ FIX: Use string consistently, not mixed with ints
+        col_type = "Auto-generated" if col == "entryID" else ("Text" if (is_object_dtype(df[col]) or is_string_dtype(df[col])) else "Non-Text")
+        
+        stats_overview[col] = {
+            "Total Rows": total, 
+            "Empty Rows": empty, 
+            "Non-Empty Rows": non_empty, 
+            "Column Type": col_type
+        }
+
+    # Create DataFrame with proper ordering
+    ordered = ["entryID"] + [c for c in stats_overview.keys() if c != "entryID"]
+    stats_df = pd.DataFrame(stats_overview)[ordered]
+
+    # ✅ FIX: Convert to Arrow-safe types before display
+    stats_df = stats_df.astype(str)  # Convert all to strings for display
+
+    st.dataframe(stats_df, width="stretch")
 
     # ========= Column Selection (draft → apply) =========
     st.markdown("---")
