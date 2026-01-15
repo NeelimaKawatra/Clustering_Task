@@ -880,6 +880,13 @@ def build_finetuning_results_snapshot(backend) -> dict:
     n_features  = int(prev_meta.get("n_features", 0))
     n_components= int(prev_meta.get("n_components", 0))
 
+    # ✅ NEW: Preserve original clustering performance metrics
+    original_performance = (st.session_state.get("clustering_results") or {}).get("performance", {
+        "total_time": 0.0,
+        "setup_time": 0.0,
+        "clustering_time": 0.0,
+    })
+
     return {
         "success": True,
         "topics": topics,                  # list[int]
@@ -905,11 +912,7 @@ def build_finetuning_results_snapshot(backend) -> dict:
             "low_confidence": low,
             "avg_confidence": avg_conf,         
         },
-        "performance": {                        # manual edits -> zeros
-            "total_time": 0.0,
-            "setup_time": 0.0,
-            "clustering_time": 0.0,
-        },
+        "performance": original_performance,  # ✅ Use original instead of zeros
         "parameters_used": params_used,      
     }
 
