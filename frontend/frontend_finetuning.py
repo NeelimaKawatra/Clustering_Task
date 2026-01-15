@@ -55,7 +55,26 @@ def _decode_hidden_id(label: str) -> Optional[str]:
             return "".join(chars)
     return None
 
-
+def _force_dnd_refresh():
+    """Force the drag-and-drop board to refresh by updating its key."""
+    # Increment the refresh token to force widget recreation
+    current_token = st.session_state.get("finetuning_refresh_token", 0)
+    st.session_state["finetuning_refresh_token"] = current_token + 1
+    
+    # Clear all sortable-related state
+    for key in list(st.session_state.keys()):
+        if "sortable" in key.lower() or key.startswith("sort_items") or key.startswith("dnd_"):
+            try:
+                del st.session_state[key]
+            except:
+                pass
+    
+    # Clear Streamlit's caches
+    try:
+        st.cache_data.clear()
+        st.cache_resource.clear()
+    except Exception:
+        pass
 # =============================================================================
 # MAIN TAB
 # =============================================================================
@@ -208,12 +227,12 @@ def show_cluster_management_interface(backend):
                     changed = new_name.strip() != cluster_name
                     if st.button("Rename", key=f"update_name_{key_prefix}", disabled=not changed):
                         ok, msg = backend.changeClusterName(cluster_id, new_name.strip())
-                        # after success, collapse parent & child; on failure keep open
                         if ok:
                             st.session_state.finetuning_success_message = f"✏️ {msg}"
                             st.session_state["exp_manage_open"] = False
                             st.session_state[f"exp_manage_child_{key_prefix}"] = False
                             save_finetuning_results_to_session(backend)
+                            _force_dnd_refresh()  # ✅ NEW
                             st.rerun()
                         else:
                             st.session_state.finetuning_error_message = msg
@@ -236,6 +255,7 @@ def show_cluster_management_interface(backend):
                             st.session_state["exp_manage_open"] = False
                             st.session_state[f"exp_manage_child_{key_prefix}"] = False
                             save_finetuning_results_to_session(backend)
+                            _force_dnd_refresh()  # ✅ NEW
                             st.rerun()
                         else:
                             st.session_state.finetuning_error_message = msg
@@ -271,6 +291,7 @@ def show_cluster_management_interface(backend):
                         st.session_state.finetuning_success_message = f"✅ Created cluster: '{result}'"
                         st.session_state["exp_create_merge_open"] = False  # collapse on success
                         save_finetuning_results_to_session(backend)
+                        _force_dnd_refresh()  # ✅ NEW
                         st.rerun()
                     else:
                         st.session_state.finetuning_error_message = result
@@ -312,6 +333,7 @@ def show_cluster_management_interface(backend):
                         st.session_state.finetuning_success_message = f"🔄 Merged into cluster: '{result}'"
                         st.session_state["exp_create_merge_open"] = False  # collapse on success
                         save_finetuning_results_to_session(backend)
+                        _force_dnd_refresh()  # ✅ NEW
                         st.rerun()
                     else:
                         st.session_state.finetuning_error_message = result
@@ -509,22 +531,9 @@ def show_drag_drop_board(backend):
                 # Keep expander open to show updated state
                 st.session_state["exp_drag_open"] = True
                 save_finetuning_results_to_session(backend)
-                try: st.cache_data.clear()
-                except Exception: pass
-                try: st.cache_resource.clear()
-                except Exception: pass
-                # Force widget to completely reset on next render
-                st.session_state["finetuning_refresh_token"] = st.session_state.get(
-                    "finetuning_refresh_token", 0
-                ) + 1
                 
-                # Clear ALL sortable-related state to force fresh widget
-                for key in list(st.session_state.keys()):
-                    if "sortable" in key.lower() or key.startswith("sort_items"):
-                        del st.session_state[key]
-                
-                # Add marker that we just applied changes to help debug
-                st.session_state["_last_dnd_apply_token"] = st.session_state["finetuning_refresh_token"]
+                # ✅ NEW: Use unified refresh function
+                _force_dnd_refresh()
                 
                 st.rerun()
         else:
@@ -643,6 +652,7 @@ def show_entry_management_interface(backend):
                                 st.session_state.finetuning_success_message = f"📦 {message}"
                                 st.session_state["exp_entry_open"] = False  # collapse on success
                                 save_finetuning_results_to_session(backend)
+                                _force_dnd_refresh()  # ✅ NEW
                                 st.rerun()
                             else:
                                 st.session_state.finetuning_error_message = message
@@ -1116,6 +1126,7 @@ def _review_cluster_name_suggestions(session_id: str, suggestions: Dict[str, str
                         applied_count += 1
                         st.success(f"✅ Applied: {suggested_name}")
                         save_finetuning_results_to_session(backend)
+                        _force_dnd_refresh()  # ✅ ADD THIS LINE
                         time.sleep(0.3)
                         st.rerun()  # Rerun to remove this card
                     else:
@@ -1232,6 +1243,7 @@ def _review_entry_move_suggestions(session_id: str, suggestions: List[Dict], bac
                         applied_count += 1
                         st.success(f"✅ Moved entry to {target_cluster_name}")
                         save_finetuning_results_to_session(backend)
+                        _force_dnd_refresh()  # ✅ ADD THIS LINE
                         time.sleep(0.3)
                         st.rerun()
                     else:
@@ -1364,6 +1376,7 @@ def _review_cluster_operation_suggestions(session_id: str, suggestions: Dict, ba
                             applied_count += 1
                             st.success(f"✅ Merged into: {result}")
                             save_finetuning_results_to_session(backend)
+                            _force_dnd_refresh()  # ✅ ADD THIS LINE
                             time.sleep(0.3)
                             st.rerun()
                         else:
@@ -1469,6 +1482,10 @@ def _apply_all_suggestions(session_id: str, suggestions: Any, operation_type: st
         
         # Save changes
         save_finetuning_results_to_session(backend)
+
+        # ✅ ADD THESE 3 LINES:
+        if applied_count > 0:
+            _force_dnd_refresh()
         
         return {"action": "accept_all", "applied_count": applied_count}
     
