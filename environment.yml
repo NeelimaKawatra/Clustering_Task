@@ -24,3 +24,7 @@ dependencies:
     - hdbscan>=0.8.0
     - openai>=1.0.0
     - python-dotenv>=1.0.0
+
+    # ✅ required/very helpful for the new clustering
+    - hf_xet>=1.0.0
+    - joblib>=1.4.0
