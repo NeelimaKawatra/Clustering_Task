@@ -1926,28 +1926,30 @@ Return ONLY the JSON. No explanation, no markdown.
 **CLUSTERING QUALITY METRICS:**
 {self._format_cluster_stats(cluster_stats)}
 
-**CRITICAL RULES:**
-1. Only suggest moves that would CLEARLY improve clustering quality
-2. If an entry fits reasonably well in its current cluster, DO NOT suggest moving it
-3. If all entries are well-placed, return an empty list: []
-4. Suggest moves ONLY when:
-   - Entry has very low confidence (<0.3) AND clearly fits another cluster better
-   - Entry's content is obviously mismatched with its cluster's theme
-   - Entry contains keywords that strongly align with a different cluster
+**SUGGESTION GUIDELINES:**
+Consider suggesting moves when:
+- Entry has low-to-medium confidence (<0.5) AND might fit better elsewhere
+- Entry's content seems mismatched with its cluster's dominant theme
+- Entry contains keywords that align strongly with a different cluster
+- Moving would noticeably improve both source and target cluster coherence
+
+**Important:**
+- Prioritize moves that clearly improve quality
+- Low confidence alone isn't enough - entry must fit better elsewhere
+- If an entry fits reasonably well, don't suggest moving it
+- Rate your confidence 0.0-1.0 for each suggestion
 
 **Entries to Analyze:**
 {self._format_entries_for_analysis(entries_to_analyze, context)}
 
 **Output Format (JSON only, no markdown):**
 [
-  {{"entry_id": "ID", "target_cluster": "cluster_X", "reason": "Specific reason", "confidence": 0.75}}
+  {{"entry_id": "ID", "target_cluster": "cluster_X", "reason": "Specific reason", "confidence": 0.70}},
+  ...
 ]
 
-**IMPORTANT:**
-- If no moves would clearly improve quality, return: []
-- Each suggestion must have confidence 0.0-1.0
-- Only include moves with confidence >= 0.6
-- Return ONLY the JSON array. No explanation, no markdown.
+**If no moves would improve quality, return: []**
+Return ONLY the JSON array. No explanation, no markdown.
 """
 
         response = self.callLLM(prompt, context, temperature=0.3, max_tokens=900)

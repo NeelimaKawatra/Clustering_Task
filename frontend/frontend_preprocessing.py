@@ -316,6 +316,6 @@ def show_processing_results():
                     rows.append({"Subject ID": sid, "Original Text": display_text})
 
                 filt_df = pd.DataFrame(rows)
-                st.dataframe(filt_df, width="stretch", hide_index=True, height=300)
+                st.dataframe(filt_df, width="stretch", hide_index=True, height=1000)
             else:
                 st.caption("No rows were filtered out.")

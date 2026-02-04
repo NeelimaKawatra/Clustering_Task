@@ -32,14 +32,14 @@ class DataLoadingBackend:
             df = self._make_arrow_safe(df)
 
             trunc_note = ""
-            if len(df) > 300:
+            if len(df) > 1000:
                 self.logger.log_activity("file_size_warning", session_id, {
                     "original_rows": len(df),
-                    "action": "truncate_to_300"
+                    "action": "truncate_to_1000"
                 })
                 orig = len(df)
-                df = df.head(300)
-                trunc_note = f" (truncated to 300 rows from {orig})"
+                df = df.head(1000)
+                trunc_note = f" (truncated to 1000 rows from {orig})"
 
             self.logger.log_activity("file_loaded_successfully", session_id, {
                 "rows": len(df),
