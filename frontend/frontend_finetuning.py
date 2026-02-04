@@ -173,7 +173,6 @@ def show_cluster_management_interface(backend):
         all_entries = backend.getAllEntries()
         modification_summary = backend.getModificationSummary()
 
-        # ✅ NEW: Get change counter for real-time sync
         change_count = backend.change_counter if hasattr(backend, 'change_counter') else 0
 
         col1, col2, col3, col4 = st.columns(4)
@@ -182,123 +181,130 @@ def show_cluster_management_interface(backend):
         with col3: st.metric("Manual Clusters", modification_summary.get("manual_clusters_created", 0))
         with col4: st.metric("Modified Entries", f"{modification_summary.get('modification_percentage', 0):.1f}%")
 
-    # ---- Keep/manage expander open state
-    st.session_state.setdefault("exp_manage_open", False)
+    # ---- View, Rename, Delete clusters
+    if "ft_manage_expanded" not in st.session_state:
+        st.session_state.ft_manage_expanded = False
+    
+    with st.expander("💡 You can view, rename, check confidence, and delete clusters:", 
+                     expanded=st.session_state.ft_manage_expanded):
 
-    # Precompute edit detection
-    all_clusters = backend.getAllClusters()
-    editing_any = False
-    tmp_pairs = []
-    for i, (cid, cdata) in enumerate(all_clusters.items()):
-        key_prefix = f"{cid}_{i}"
-        tmp_pairs.append((key_prefix, cdata["cluster_name"], cid, cdata))
-        current_val = st.session_state.get(f"name_{key_prefix}", cdata["cluster_name"])
-        if current_val.strip() != cdata["cluster_name"]:
-            editing_any = True
-
-    parent_expanded = st.session_state["exp_manage_open"] or editing_any
-    with st.expander("💡 You can view, rename, check confidence, and delete clusters:",
-                     expanded=parent_expanded):
-
-        def _keep_manage_open():
-            st.session_state["exp_manage_open"] = True
-
-        for key_prefix, cluster_name, cluster_id, cluster_data in tmp_pairs:
-            # Child expander sticks open while editing this cluster's name
-            current_val = st.session_state.get(f"name_{key_prefix}", cluster_name)
-            child_expanded = (current_val.strip() != cluster_name) or st.session_state.get(
-                f"exp_manage_child_{key_prefix}", False
-            )
-
+        all_clusters = backend.getAllClusters()
+        
+        for i, (cid, cdata) in enumerate(all_clusters.items()):
+            key_prefix = f"{cid}_{i}"
+            cluster_name = cdata["cluster_name"]
+            
+            # Track each child expander state
+            child_exp_key = f"ft_child_{key_prefix}"
+            if child_exp_key not in st.session_state:
+                st.session_state[child_exp_key] = False
+            
             with st.expander(
-                f"🗂️ {cluster_data['cluster_name']} ({len(cluster_data['entry_ids'])} entries)",
-                expanded=child_expanded,
+                f"🗂️ {cluster_name} ({len(cdata['entry_ids'])} entries)",
+                expanded=st.session_state[child_exp_key],
             ):
                 col1, col2, col3 = st.columns([2, 1, 1])
 
-                # Rename
+                # Rename - Enter to submit
                 with col1:
-                    new_name = st.text_input(
-                        "Cluster name",
+                    # Track previous value to detect changes
+                    prev_name_key = f"prev_name_{key_prefix}"
+                    if prev_name_key not in st.session_state:
+                        st.session_state[prev_name_key] = cluster_name
+                    
+                    def handle_rename():
+                        """Callback when text input changes (Enter pressed)"""
+                        new_name = st.session_state[f"name_{key_prefix}"]
+                        prev_name = st.session_state[prev_name_key]
+                        
+                        # Only rename if changed
+                        if new_name.strip() != prev_name and new_name.strip() != "":
+                            ok, msg = backend.changeClusterName(cid, new_name.strip())
+                            if ok:
+                                st.session_state.finetuning_success_message = f"✏️ {msg}"
+                                st.session_state[prev_name_key] = new_name.strip()
+                                st.session_state.ft_manage_expanded = True
+                                st.session_state[child_exp_key] = True
+                                save_finetuning_results_to_session(backend)
+                                _force_dnd_refresh()
+                            else:
+                                st.session_state.finetuning_error_message = msg
+                                st.session_state.ft_manage_expanded = True
+                                st.session_state[child_exp_key] = True
+                    
+                    st.text_input(
+                        "Cluster name (press Enter to rename)",
                         value=cluster_name,
                         key=f"name_{key_prefix}",
-                        on_change=_keep_manage_open,  # keep open on Enter/typing
+                        on_change=handle_rename,
                     )
-                    changed = new_name.strip() != cluster_name
-                    if st.button("Rename", key=f"update_name_{key_prefix}", disabled=not changed):
-                        ok, msg = backend.changeClusterName(cluster_id, new_name.strip())
-                        if ok:
-                            st.session_state.finetuning_success_message = f"✏️ {msg}"
-                            st.session_state["exp_manage_open"] = False
-                            st.session_state[f"exp_manage_child_{key_prefix}"] = False
-                            save_finetuning_results_to_session(backend)
-                            _force_dnd_refresh()  # ✅ NEW
-                            st.rerun()
-                        else:
-                            st.session_state.finetuning_error_message = msg
-                            st.session_state["exp_manage_open"] = True
-                            st.session_state[f"exp_manage_child_{key_prefix}"] = True
-                            st.rerun()
 
                 # Stats
                 with col2:
-                    stats = backend.getClusterStatistics(cluster_id)
+                    stats = backend.getClusterStatistics(cid)
                     if stats:
                         st.metric("Avg Confidence", f"{stats['avg_probability']:.2f}")
 
-                # Delete
+                # Delete - button only (can't use Enter for destructive action)
                 with col3:
-                    if st.button("Delete Cluster", key=f"delete_{key_prefix}"):
-                        ok, msg = backend.deleteCluster(cluster_id)
+                    st.write("")  # Spacing
+                    st.write("")
+                    if st.button("🗑️ Delete", key=f"delete_{key_prefix}"):
+                        ok, msg = backend.deleteCluster(cid)
                         if ok:
                             st.session_state.finetuning_success_message = f"🗑️ {msg}"
-                            st.session_state["exp_manage_open"] = False
-                            st.session_state[f"exp_manage_child_{key_prefix}"] = False
+                            # Clean up
+                            if prev_name_key in st.session_state:
+                                del st.session_state[prev_name_key]
+                            st.session_state.ft_manage_expanded = True
                             save_finetuning_results_to_session(backend)
-                            _force_dnd_refresh()  # ✅ NEW
+                            _force_dnd_refresh()
                             st.rerun()
                         else:
                             st.session_state.finetuning_error_message = msg
-                            st.session_state["exp_manage_open"] = True
-                            st.session_state[f"exp_manage_child_{key_prefix}"] = True
+                            st.session_state.ft_manage_expanded = True
+                            st.session_state[child_exp_key] = True
                             st.rerun()
 
     # ---- Create + Merge
-    st.session_state.setdefault("exp_create_merge_open", False)
-
-    def _keep_merge_open():
-        st.session_state["exp_create_merge_open"] = True
-
-    with st.expander("💡 You can create new clusters or merge existing clusters:",
-                     expanded=st.session_state["exp_create_merge_open"]):
+    if "ft_create_merge_expanded" not in st.session_state:
+        st.session_state.ft_create_merge_expanded = False
+    
+    with st.expander("💡 You can create new clusters or merge existing clusters:", 
+                     expanded=st.session_state.ft_create_merge_expanded):
 
         current_clusters = backend.getAllClusters()
         col1, col2 = st.columns(2)
 
-        # Create
+        # Create - Enter to submit
         with col1:
             st.markdown("**Create New Cluster**")
-            new_cluster_name = st.text_input(
-                "New cluster name",
-                placeholder="Type here...",
-                key="new_cluster_name",
-                on_change=_keep_merge_open,  # ENTER should not collapse
-            )
-            if st.button("Create New Cluster"):
-                if new_cluster_name.strip():
-                    ok, result = backend.createNewCluster(new_cluster_name.strip())
+            
+            def handle_create():
+                """Callback when create input changes (Enter pressed)"""
+                new_cluster_name = st.session_state.get("new_cluster_name_input", "").strip()
+                
+                if new_cluster_name:
+                    ok, result = backend.createNewCluster(new_cluster_name)
                     if ok:
                         st.session_state.finetuning_success_message = f"✅ Created cluster: '{result}'"
-                        st.session_state["exp_create_merge_open"] = False  # collapse on success
+                        st.session_state.new_cluster_name_input = ""  # Clear
+                        st.session_state.ft_create_merge_expanded = True
                         save_finetuning_results_to_session(backend)
-                        _force_dnd_refresh()  # ✅ NEW
-                        st.rerun()
+                        _force_dnd_refresh()
                     else:
                         st.session_state.finetuning_error_message = result
-                        st.session_state["exp_create_merge_open"] = True
-                        st.rerun()
+                        st.session_state.ft_create_merge_expanded = True
+            
+            st.text_input(
+                "New cluster name (press Enter to create)",
+                value="",
+                placeholder="Type here...",
+                key="new_cluster_name_input",
+                on_change=handle_create,
+            )
 
-        # Merge
+        # Merge - button (needs cluster selection first)
         with col2:
             st.markdown("**Merge Clusters**")
             cluster_ids = list(current_clusters.keys())
@@ -311,36 +317,40 @@ def show_cluster_management_interface(backend):
                     range(len(options)),
                     key="merge_cluster1",
                     format_func=lambda x: options[x],
-                    on_change=_keep_merge_open,
                 )
                 idx2 = st.selectbox(
                     "Second cluster",
                     range(len(options)),
                     key="merge_cluster2",
                     format_func=lambda x: options[x],
-                    on_change=_keep_merge_open,
                 )
+                
                 merge_name = st.text_input(
-                    "Merged cluster name (optional)",
-                    key="merge_name",
-                    on_change=_keep_merge_open,
+                    "Merged name (optional)",
+                    value="",
+                    key="merge_name_input",
+                    placeholder="Leave blank for auto",
                 )
 
-                if st.button("Merge Clusters") and idx1 != idx2:
-                    c1, c2 = cluster_ids[idx1], cluster_ids[idx2]
-                    ok, result = backend.mergeClusters(c1, c2, merge_name or None)
-                    if ok:
-                        st.session_state.finetuning_success_message = f"🔄 Merged into cluster: '{result}'"
-                        st.session_state["exp_create_merge_open"] = False  # collapse on success
-                        save_finetuning_results_to_session(backend)
-                        _force_dnd_refresh()  # ✅ NEW
-                        st.rerun()
+                if st.button("🔗 Merge Clusters", key="merge_clusters_btn"):
+                    if idx1 != idx2:
+                        c1, c2 = cluster_ids[idx1], cluster_ids[idx2]
+                        ok, result = backend.mergeClusters(c1, c2, merge_name.strip() or None)
+                        if ok:
+                            st.session_state.finetuning_success_message = f"🔄 Merged into: '{result}'"
+                            st.session_state.merge_name_input = ""
+                            st.session_state.ft_create_merge_expanded = True
+                            save_finetuning_results_to_session(backend)
+                            _force_dnd_refresh()
+                            st.rerun()
+                        else:
+                            st.session_state.finetuning_error_message = result
+                            st.session_state.ft_create_merge_expanded = True
+                            st.rerun()
                     else:
-                        st.session_state.finetuning_error_message = result
-                        st.session_state["exp_create_merge_open"] = True
-                        st.rerun()
-
-
+                        st.warning("Please select two different clusters")
+            else:
+                st.info("Need at least 2 clusters to merge")
 def show_drag_drop_board(backend):
     """
     Drag & Drop board for cluster reassignment.
