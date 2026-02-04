@@ -275,6 +275,7 @@ def _save_configuration(provider: str, temperature: float, max_tokens: int):
     
     # Initialize LLM wrapper with new settings
     try:
+        # ✅ FIX: Import inside function to avoid circular import
         from frontend.frontend_finetuning import get_llm_wrapper
         from backend.finetuning_backend import get_finetuning_backend
         
@@ -351,6 +352,7 @@ def _test_llm_connection(provider: str, temperature: float, max_tokens: int):
     
     with st.spinner("🧪 Testing LLM connection..."):
         try:
+            # ✅ FIX: Import inside function to avoid circular import
             from frontend.frontend_finetuning import callLLM
             
             # Temporarily set config for test
